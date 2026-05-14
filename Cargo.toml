@@ -1,0 +1,24 @@
+[package]
+name = "web-sw-cor24-x-assembler"
+version = "0.1.0"
+edition = "2024"
+authors = ["Michael A. Wright"]
+license = "MIT"
+description = "Web UI for the sw-cor24-x-assembler COR24 assembler"
+
+[dependencies]
+yew = { version = "0.21", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+gloo-net = { version = "0.5", features = ["http"] }
+gloo-timers = "0.3"
+web-sys = { version = "0.3", features = ["HtmlElement", "HtmlTextAreaElement", "HtmlSelectElement", "KeyboardEvent"] }
+
+# cor24 assembler (assembly -> machine code) + emulator (execution).
+# Both are sibling-clone path dependencies; dwxas's working tree
+# needs sibling clones of:
+#   ../sw-cor24-x-assembler
+#   ../sw-cor24-emulator
+# at the same level as this repo's clone.
+cor24-assembler = { path = "../sw-cor24-x-assembler" }
+cor24-emulator = { path = "../sw-cor24-emulator", default-features = false }
