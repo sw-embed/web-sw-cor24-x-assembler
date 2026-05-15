@@ -1,0 +1,10 @@
+number = 2
+slug = "makerlisp-button-echo"
+status = "pending"
+description = """
+Add a new Button Echo variation to sibling sw-cor24-x-assembler that
+reproduc..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-15T16:30:14"
+commits = []
