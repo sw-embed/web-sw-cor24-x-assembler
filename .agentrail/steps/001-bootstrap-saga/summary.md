@@ -1,0 +1,1 @@
+Bootstrapped saga: generated AGENTS.md via 'agentrail gen-agents-doc', consolidated it with CLAUDE.md and made CLAUDE.md a symlink; initialized the extract-live-demo saga; staged sibling clones of sw-cor24-x-assembler and sw-cor24-emulator under ../ for the Cargo.toml path-deps.
