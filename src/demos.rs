@@ -32,6 +32,7 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("Countdown", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s")),
     ("Echo", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s")),
     ("Fibonacci", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s")),
+    ("I2C Add1 Ping", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_add1_ping.s")),
     ("Literals", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/literals.s")),
     ("Loop Trace", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/loop_trace.s")),
     ("Memory Access", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/memory_access.s")),
@@ -40,8 +41,9 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("Stack Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s")),
     ("UART Hello", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s")),
     ("Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/variables.s")),
-    // I2C demos (.lgo, loaded via cor24_emulator::load_lgo).
-    ("TMP101 read (i2c, .lgo)", include_str!("../../sw-cor24-emulator/examples/i2c/tmp101/tmp101.lgo")),
+    // I2C demo — readable assembly source (web-local, tight read loop with
+    // no idle delay so the TMP101 panel's slider drives output snappily).
+    ("TMP101 read (i2c)", include_str!("examples/tmp101_read.s")),
 ];
 
 /// Look up a bundled example by display name.

@@ -1,0 +1,11 @@
+number = 9
+slug = "spi-tmp125-and-followups"
+status = "pending"
+description = """
+Pick from the open follow-up list. Concrete candidates:
+
+1. SPI/TMP125 panel ..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-15T19:56:09"
+commits = []
