@@ -5,6 +5,7 @@
 
 use yew::prelude::*;
 
+use super::echo::{EchoPanel, EchoSnapshot};
 use super::tmp125::{Tmp125Panel, Tmp125Snapshot};
 
 /// Subset of `cor24_emulator::cpu::spi_bus::SpiBusState` that the
@@ -28,12 +29,15 @@ pub struct SpiPanelProps {
     pub bus: SpiBusSnapshot,
     #[prop_or_default]
     pub tmp125: Option<Tmp125Snapshot>,
+    #[prop_or_default]
+    pub echo: Option<EchoSnapshot>,
     pub on_set_tmp125_temperature: Callback<f32>,
+    pub on_poke_echo: Callback<u8>,
 }
 
 #[function_component(SpiPanel)]
 pub fn spi_panel(props: &SpiPanelProps) -> Html {
-    if props.tmp125.is_none() && !props.bus.attached {
+    if props.tmp125.is_none() && props.echo.is_none() && !props.bus.attached {
         return html! {};
     }
 
@@ -73,6 +77,10 @@ pub fn spi_panel(props: &SpiPanelProps) -> Html {
             if let Some(snap) = props.tmp125 {
                 <Tmp125Panel snapshot={snap}
                              on_set_temperature={props.on_set_tmp125_temperature.clone()} />
+            }
+            if let Some(snap) = props.echo {
+                <EchoPanel snapshot={snap}
+                           on_poke={props.on_poke_echo.clone()} />
             }
         </div>
     }

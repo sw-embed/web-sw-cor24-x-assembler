@@ -1,0 +1,10 @@
+number = 12
+slug = "i2c-rtc-ds1307"
+status = "pending"
+description = """
+Implement an I2C RTC device + demo following the recommendations in
+sw-cor24-..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-16T09:39:10"
+commits = []

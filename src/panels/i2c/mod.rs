@@ -15,7 +15,9 @@
 //!   device snapshots and renders the header + device cards.
 
 pub mod container;
+pub mod test_device;
 pub mod tmp101;
 
 pub use container::{BusSnapshot, I2cPanel};
+pub use test_device::TestDeviceSnapshot;
 pub use tmp101::Tmp101Snapshot;
