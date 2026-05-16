@@ -77,34 +77,44 @@ loop:
         bra     loop            ; flat-out loop (no idle delay)
 
 ; ============================================================================
-; SPI 8-bit exchange (cf. sw-cor24-emulator/examples/spi/tmp125/spixchg.s).
+; SPI 8-bit exchange.
 ; Input:  r0 = byte to drive on MOSI (low 8 bits significant).
 ; Output: r0 = byte clocked in from MISO.
 ; Bit-bang via the SCLK / MOSI MMIO lines; SELN is driven by the caller.
 ;
+; Uses the same MSB-walk-with-mask approach as i2cwrite: r2 is a mask
+; that walks 0x80 -> 0x40 -> ... -> 0x01, and we test (byte & mask) to
+; pick the MOSI bit. Earlier draft tried (byte<<24-shift) + cls/mov-c
+; -- that's wrong for a u8 sign-extended to 24 bits because the sign
+; bit (bit 23) was always 0.
+;
 ; Frame: pushed r1, pushed fp, pushed (byte_in = r0), pushed (acc = 0).
-; Locals:  byte_in at 3(fp), acc at 0(fp). Counter in r2 (8 -> 0).
+; Locals: byte_in at 3(fp), acc at 0(fp).
 ; ============================================================================
 spi_xchg:
         push    r1
         push    fp
-        push    r0              ; byte_in at top of stack
+        push    r0              ; byte_in at offset 3(fp)
         lc      r0, 0
-        push    r0              ; acc = 0 at top of stack
+        push    r0              ; acc = 0 at offset 0(fp)
         mov     fp, sp
-        lcu     r2, 8
+        lcu     r2, 80h         ; mask walks 0x80 -> 0x01
 .sx_loop:
         ; SCLK low
         la      r1, 0FF0031h
         lc      r0, 0
         sb      r0, 0(r1)
 
-        ; Drive next MOSI bit. byte_in <<= 1, sign tells us the MSB.
-        lw      r0, 3(fp)       ; current byte_in
-        cls     r0, z           ; c = (byte_in < 0) i.e. bit 23 was set
-        add     r0, r0          ; shift left 1
-        sw      r0, 3(fp)       ; updated byte_in
-        mov     r0, c           ; r0 = the just-extracted MSB (0 or 1)
+        ; Pick MOSI bit: (byte_in & mask) ? 1 : 0
+        lbu     r0, 3(fp)
+        and     r0, r2
+        ceq     r0, z
+        brt     .sx_zero
+        lc      r0, 1
+        bra     .sx_emit
+.sx_zero:
+        lc      r0, 0
+.sx_emit:
         la      r1, 0FF0030h
         sb      r0, 0(r1)       ; MOSI = bit
 
@@ -116,15 +126,16 @@ spi_xchg:
         ; Sample MISO into acc.
         la      r1, 0FF0030h
         lbu     r0, 0(r1)
-        push    r0
-        lw      r0, 4(fp)       ; acc (offset shifts by 3 because of the push)
+        push    r0              ; bit on stack temporarily
+        lw      r0, 4(fp)       ; current acc (fp shifted by push)
         add     r0, r0          ; acc <<= 1
         pop     r1              ; bit into r1
         or      r0, r1
         sw      r0, 0(fp)       ; updated acc
 
-        ; counter--
-        add     r2, -1
+        ; mask >>= 1; loop until mask hits 0
+        lc      r1, 1
+        srl     r2, r1
         ceq     r2, z
         brf     .sx_loop
 
