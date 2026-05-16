@@ -1,0 +1,10 @@
+number = 10
+slug = "followups-or-user-direction"
+status = "pending"
+description = """
+The 'more devices' theme has shipped enough for now (LED, switch,
+UART, regis..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-15T20:12:16"
+commits = []
