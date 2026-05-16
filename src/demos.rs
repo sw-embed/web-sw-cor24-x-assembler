@@ -16,7 +16,12 @@ pub const DEFAULT_SOURCE: &str = include_str!(
 );
 
 /// All bundled examples, ordered to match
-/// sw-cor24-x-assembler/tests/integration_tests.rs::examples().
+/// sw-cor24-x-assembler/tests/integration_tests.rs::examples(),
+/// with I2C demos appended at the end. I2C entries are pre-built
+/// `.lgo` files from sibling `sw-cor24-emulator/examples/i2c/`; the
+/// `Assemble & Run` dispatch in `main.rs` detects the `L<6-hex>`
+/// signature and loads them via `EmulatorCore::load_lgo` rather
+/// than running them through `cor24-assembler`.
 pub const EXAMPLES: &[(&str, &str)] = &[
     ("Add", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/add.s")),
     ("Assert", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/assert.s")),
@@ -35,6 +40,8 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     ("Stack Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s")),
     ("UART Hello", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s")),
     ("Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/variables.s")),
+    // I2C demos (.lgo, loaded via cor24_emulator::load_lgo).
+    ("TMP101 read (i2c, .lgo)", include_str!("../../sw-cor24-emulator/examples/i2c/tmp101/tmp101.lgo")),
 ];
 
 /// Look up a bundled example by display name.

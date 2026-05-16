@@ -1,6 +1,6 @@
 number = 6
 slug = "i2c-tmp101-panel"
-status = "pending"
+status = "in-progress"
 description = """
 Make the TMP101 card interactive: a slider (range input) lets the
 user set th..."""
