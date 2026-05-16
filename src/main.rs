@@ -214,7 +214,13 @@ fn app() -> Html {
                     }
                 }
 
-                let batch = e.run_batch(10_000);
+                // Instructions per 16 ms tick. Sized so a demo with an
+                // unguarded inner loop (e.g. the upstream tmp101.lgo,
+                // which spins `t = -1; while (t--) {}` between reads)
+                // drains the loop fast enough that slider changes on
+                // the I2C device panels visibly drive UART output
+                // without artificial delay tuning in the demo source.
+                let batch = e.run_batch(1_000_000);
 
                 // Update display state.
                 uart_output.set(e.get_uart_output().to_string());
