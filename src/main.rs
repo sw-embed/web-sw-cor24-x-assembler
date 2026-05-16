@@ -17,7 +17,9 @@ use std::rc::Rc;
 
 use cor24_assembler::AssembledLine;
 use cor24_emulator::EmulatorCore;
-use cor24_emulator::peripherals::i2c::{I2cDevice, I2cHandle, Tmp101Device, Tmp101HandleExt};
+use cor24_emulator::peripherals::i2c::{
+    Add1Device, I2cDevice, I2cHandle, Tmp101Device, Tmp101HandleExt,
+};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlSelectElement, KeyboardEvent};
 use yew::prelude::*;
@@ -157,6 +159,11 @@ fn app() -> Html {
                         cor24_emulator::peripherals::i2c::devices::tmp101::DEFAULT_ADDRESS,
                     ))
                     .expect("TMP101 default address is free on a fresh bus");
+                // Add1 test slave at 0x50 — the address the bundled
+                // 'I2C Add1 Ping' demo expects. The two devices live at
+                // different addresses (0x4A vs 0x50) so they coexist.
+                e.attach_i2c_device(Add1Device::new(0x50, 0))
+                    .expect("Add1 address 0x50 is free on a fresh bus");
                 e.resume();
                 h
             };
