@@ -1,10 +1,15 @@
-//! TMP101 device-panel — read-only view in this step.
+//! TMP101 device-panel — current temperature readout + slider control.
 //!
-//! Step 005 wires the framework up to the emulator's I2cHandle path
-//! and displays the live device state. The interactive slider/drag
-//! control that lets the user set the simulated °C is step 006.
+//! The slider mutates the device through a typed `I2cHandle` held in
+//! `main.rs`. Range matches the TMP101's 12-bit signed temperature
+//! register (~-128 °C to +127.94 °C at 0.0625 °C / LSB), so the
+//! user can sweep the entire chip range; the per-resolution
+//! quantization the panel shows reflects what the guest would read
+//! back at the device's currently-configured resolution.
 
 use cor24_emulator::peripherals::i2c::Tmp101Resolution;
+use wasm_bindgen::JsCast;
+use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 /// A per-tick snapshot of the TMP101 the run loop polls out of
@@ -25,6 +30,9 @@ pub struct Tmp101Snapshot {
 #[derive(Properties, PartialEq)]
 pub struct Tmp101PanelProps {
     pub snapshot: Tmp101Snapshot,
+    /// Invoked when the user drags the temperature slider. The
+    /// emulator side does the actual `handle.with(|d| d.set_temperature(v))`.
+    pub on_set_temperature: Callback<f32>,
 }
 
 #[function_component(Tmp101Panel)]
@@ -37,9 +45,22 @@ pub fn tmp101_panel(props: &Tmp101PanelProps) -> Html {
         Tmp101Resolution::Bits12 => "12-bit",
     };
 
+    let on_input = {
+        let on_set_temperature = props.on_set_temperature.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(input) = e
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+                && let Ok(v) = input.value().parse::<f32>()
+            {
+                on_set_temperature.emit(v);
+            }
+        })
+    };
+
     html! {
         <div style="background:#11111b; padding:8px; border-radius:4px; \
-                    border:1px solid #313244; display:flex; flex-direction:column; gap:4px;">
+                    border:1px solid #313244; display:flex; flex-direction:column; gap:6px;">
             <div style="display:flex; justify-content:space-between; align-items:baseline;">
                 <span style="color:#cdd6f4; font-weight:600; font-size:0.85rem;">{"TMP101"}</span>
                 <span style="color:#a6adc8; font-family:monospace; font-size:0.75rem;">
@@ -55,8 +76,18 @@ pub fn tmp101_panel(props: &Tmp101PanelProps) -> Html {
                     {format!("config 0x{:02X}", s.config)}
                 </span>
             </div>
-            <div style="color:#6c7086; font-size:0.7rem;">
-                {"step 006 will add a slider for live \u{00b0}C control"}
+            <input type="range"
+                   min="-128.0"
+                   max="127.9375"
+                   step="0.0625"
+                   value={format!("{}", s.temperature_c)}
+                   oninput={on_input}
+                   style="width:100%; accent-color:#89b4fa;" />
+            <div style="display:flex; justify-content:space-between; \
+                        color:#6c7086; font-size:0.7rem; font-family:monospace;">
+                <span>{"-128 \u{00b0}C"}</span>
+                <span>{"drag to change simulated temperature"}</span>
+                <span>{"+128 \u{00b0}C"}</span>
             </div>
         </div>
     }

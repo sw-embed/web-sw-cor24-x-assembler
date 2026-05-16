@@ -100,30 +100,57 @@ fn app() -> Html {
         Callback::from(move |_: MouseEvent| {
             // Stop any existing run loop.
             *interval_handle.borrow_mut() = None;
-
-            // Assemble.
-            let output = assembler::assemble(&source);
-            listing.set(output.listing.clone());
             runtime_error_line.set(None);
 
-            if let Some(err) = output.error {
-                assemble_error.set(Some(err));
-                running.set(false);
-                halted.set(false);
-                status_msg.set("Assembly error".into());
-                return;
-            }
+            // Two source flavors: COR24 assembly (.s) goes through
+            // cor24-assembler; an .lgo load-file (any line starting
+            // with `L<6-hex>`) bypasses the assembler and loads
+            // straight into the emulator. Listing is only meaningful
+            // for the .s path.
+            let lgo_mode = assembler::looks_like_lgo(&source);
+            let bytes: Option<Vec<u8>> = if lgo_mode {
+                listing.set(Vec::new());
+                None
+            } else {
+                let output = assembler::assemble(&source);
+                listing.set(output.listing.clone());
+                if let Some(err) = output.error {
+                    assemble_error.set(Some(err));
+                    running.set(false);
+                    halted.set(false);
+                    status_msg.set("Assembly error".into());
+                    return;
+                }
+                Some(output.bytes)
+            };
             assemble_error.set(None);
 
-            // Reset emulator, load binary, attach I2C devices. The
-            // previous run's I2cHandle dies with the old EmulatorCore
-            // (the bus routing table is dropped), so we attach fresh
-            // each run and stash the new handle for the tick loop.
+            // Reset emulator, load program (assembled bytes or .lgo),
+            // attach I2C devices. The previous run's I2cHandle dies
+            // with the old EmulatorCore (the bus routing table is
+            // dropped), so we attach fresh each run and stash the
+            // new handle for the tick loop.
             let new_tmp101_handle = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
-                e.load_program(0, &output.bytes);
-                e.load_program_extent(output.bytes.len() as u32);
+                match &bytes {
+                    Some(bs) => {
+                        e.load_program(0, bs);
+                        e.load_program_extent(bs.len() as u32);
+                    }
+                    None => {
+                        if let Err(msg) = e.load_lgo(&source, None) {
+                            assemble_error.set(Some(assembler::AssembleError {
+                                message: format!(".lgo load failed: {msg}"),
+                                line: None,
+                            }));
+                            running.set(false);
+                            halted.set(false);
+                            status_msg.set(".lgo error".into());
+                            return;
+                        }
+                    }
+                }
                 e.set_button_pressed(*switch_pressed);
                 let h = e
                     .attach_i2c_device(Tmp101Device::new(
@@ -288,6 +315,17 @@ fn app() -> Html {
         })
     };
 
+    let on_set_tmp101_temperature = {
+        let tmp101_handle = tmp101_handle.clone();
+        let tmp101_snapshot = tmp101_snapshot.clone();
+        Callback::from(move |celsius: f32| {
+            if let Some(h) = tmp101_handle.borrow().as_ref() {
+                h.set_temperature(celsius);
+                tmp101_snapshot.set(Some(read_tmp101_snapshot(h)));
+            }
+        })
+    };
+
     let on_demo_select = {
         let source = source.clone();
         let assemble_error = assemble_error.clone();
@@ -419,7 +457,9 @@ fn app() -> Html {
                             <SwitchPanel pressed={*switch_pressed} on_toggle={on_switch_toggle} />
                         </div>
 
-                        <I2cPanel bus={*bus_snapshot} tmp101={*tmp101_snapshot} />
+                        <I2cPanel bus={*bus_snapshot}
+                                  tmp101={*tmp101_snapshot}
+                                  on_set_tmp101_temperature={on_set_tmp101_temperature} />
 
                         <div style="display:flex; justify-content:space-between; align-items:center; \
                                     font-size:0.8rem; color:#bac2de; border-top:1px solid #313244; \
