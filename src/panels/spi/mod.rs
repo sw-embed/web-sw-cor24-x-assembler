@@ -1,0 +1,14 @@
+//! SPI device-panels.
+//!
+//! Parallels `src/panels/i2c/` for SPI: each device has its own
+//! module, the run loop in `main.rs` polls snapshots, and the
+//! `SpiPanel` container renders the bus header + per-device cards.
+//! SPI is single-slave today (per the cor24-emulator plan), so the
+//! container is simpler than the I2C one — one device slot rather
+//! than an address-routing table.
+
+pub mod container;
+pub mod tmp125;
+
+pub use container::{SpiBusSnapshot, SpiPanel};
+pub use tmp125::Tmp125Snapshot;

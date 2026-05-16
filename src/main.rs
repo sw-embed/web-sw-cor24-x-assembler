@@ -20,13 +20,15 @@ use cor24_emulator::EmulatorCore;
 use cor24_emulator::peripherals::i2c::{
     Add1Device, I2cDevice, I2cHandle, Tmp101Device, Tmp101HandleExt,
 };
+use cor24_emulator::peripherals::spi::{SpiHandle, Tmp125Device, Tmp125HandleExt};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlSelectElement, KeyboardEvent};
 use yew::prelude::*;
 
 use editor::Editor;
 use panels::{
-    BusSnapshot, I2cPanel, LedPanel, RegistersPanel, SwitchPanel, Tmp101Snapshot, UartPanel,
+    BusSnapshot, I2cPanel, LedPanel, RegistersPanel, SpiBusSnapshot, SpiPanel, SwitchPanel,
+    Tmp101Snapshot, Tmp125Snapshot, UartPanel,
 };
 
 #[function_component(App)]
@@ -63,6 +65,11 @@ fn app() -> Html {
     let bus_snapshot = use_state(BusSnapshot::default);
     let tmp101_snapshot = use_state(|| None::<Tmp101Snapshot>);
 
+    // SPI side: single-slave for now. TMP125 attaches each run.
+    let tmp125_handle: Rc<RefCell<Option<SpiHandle<Tmp125Device>>>> = use_mut_ref(|| None);
+    let spi_bus_snapshot = use_state(SpiBusSnapshot::default);
+    let tmp125_snapshot = use_state(|| None::<Tmp125Snapshot>);
+
     // UART input buffer (keyboard → emulator, drained in run loop)
     let uart_input: Rc<RefCell<std::collections::VecDeque<u8>>> =
         use_mut_ref(std::collections::VecDeque::new);
@@ -98,6 +105,9 @@ fn app() -> Html {
         let tmp101_handle = tmp101_handle.clone();
         let bus_snapshot = bus_snapshot.clone();
         let tmp101_snapshot = tmp101_snapshot.clone();
+        let tmp125_handle = tmp125_handle.clone();
+        let spi_bus_snapshot = spi_bus_snapshot.clone();
+        let tmp125_snapshot = tmp125_snapshot.clone();
 
         Callback::from(move |_: MouseEvent| {
             // Stop any existing run loop.
@@ -128,11 +138,12 @@ fn app() -> Html {
             assemble_error.set(None);
 
             // Reset emulator, load program (assembled bytes or .lgo),
-            // attach I2C devices. The previous run's I2cHandle dies
-            // with the old EmulatorCore (the bus routing table is
-            // dropped), so we attach fresh each run and stash the
-            // new handle for the tick loop.
-            let new_tmp101_handle = {
+            // attach I2C + SPI devices. The previous run's typed
+            // handles die with the old EmulatorCore (the I2C routing
+            // table and the SPI device slot are both dropped), so we
+            // attach fresh each run and stash the new handles for
+            // the tick loop.
+            let (new_tmp101_handle, new_tmp125_handle) = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 match &bytes {
@@ -154,7 +165,7 @@ fn app() -> Html {
                     }
                 }
                 e.set_button_pressed(*switch_pressed);
-                let h = e
+                let h_i2c = e
                     .attach_i2c_device(Tmp101Device::new(
                         cor24_emulator::peripherals::i2c::devices::tmp101::DEFAULT_ADDRESS,
                     ))
@@ -164,14 +175,20 @@ fn app() -> Html {
                 // different addresses (0x4A vs 0x50) so they coexist.
                 e.attach_i2c_device(Add1Device::new(0x50, 0))
                     .expect("Add1 address 0x50 is free on a fresh bus");
+                // SPI is single-slave today; attach TMP125 fresh so
+                // the bundled 'TMP125 read (spi)' demo finds it.
+                let h_spi = e.attach_spi_device(Tmp125Device::new());
                 e.resume();
-                h
+                (h_i2c, h_spi)
             };
 
-            // Seed the TMP101 panel with the freshly-attached device
-            // state so the card shows up immediately, before any tick.
+            // Seed both bus-device panels with the freshly-attached
+            // device state so the cards show up immediately, before
+            // any tick.
             tmp101_snapshot.set(Some(read_tmp101_snapshot(&new_tmp101_handle)));
             *tmp101_handle.borrow_mut() = Some(new_tmp101_handle);
+            tmp125_snapshot.set(Some(read_tmp125_snapshot(&new_tmp125_handle)));
+            *tmp125_handle.borrow_mut() = Some(new_tmp125_handle);
 
             // Reset display state.
             uart_output.set(String::new());
@@ -184,6 +201,7 @@ fn app() -> Html {
             status_msg.set("Running".into());
             running.set(true);
             bus_snapshot.set(BusSnapshot::default());
+            spi_bus_snapshot.set(SpiBusSnapshot::default());
 
             // Clear input buffer.
             uart_input.borrow_mut().clear();
@@ -206,6 +224,9 @@ fn app() -> Html {
             let tmp101_handle = tmp101_handle.clone();
             let bus_snapshot = bus_snapshot.clone();
             let tmp101_snapshot = tmp101_snapshot.clone();
+            let tmp125_handle = tmp125_handle.clone();
+            let spi_bus_snapshot = spi_bus_snapshot.clone();
+            let tmp125_snapshot = tmp125_snapshot.clone();
 
             let interval = gloo_timers::callback::Interval::new(16, move || {
                 let mut e = emu.borrow_mut();
@@ -221,13 +242,15 @@ fn app() -> Html {
                     }
                 }
 
-                // Instructions per 16 ms tick. Sized so a demo with an
-                // unguarded inner loop (e.g. the upstream tmp101.lgo,
-                // which spins `t = -1; while (t--) {}` between reads)
-                // drains the loop fast enough that slider changes on
-                // the I2C device panels visibly drive UART output
-                // without artificial delay tuning in the demo source.
-                let batch = e.run_batch(1_000_000);
+                // Instructions per 16 ms tick. 100k is the sweet spot for
+                // the current demo mix: tight read-print loops (no idle
+                // delay) stay snappy and the UI thread keeps up with
+                // slider events. The earlier 1M tuning was needed for
+                // the now-removed tmp101.lgo (which spun a 16M-iteration
+                // delay between reads); with all bundled demos being
+                // hand-tuned .s, that budget pegged CPU and made the
+                // sliders unresponsive.
+                let batch = e.run_batch(100_000);
 
                 // Update display state.
                 uart_output.set(e.get_uart_output().to_string());
@@ -252,6 +275,19 @@ fn app() -> Html {
                 });
                 if let Some(h) = tmp101_handle.borrow().as_ref() {
                     tmp101_snapshot.set(Some(read_tmp101_snapshot(h)));
+                }
+
+                // Update SPI bus header + TMP125 snapshot.
+                let spi = e.spi();
+                spi_bus_snapshot.set(SpiBusSnapshot {
+                    selected: !spi.last_seln,
+                    last_mosi: spi.last_mosi_byte,
+                    last_miso: spi.last_miso_byte,
+                    bytes_exchanged: spi.bytes_exchanged,
+                    attached: spi.device.is_some(),
+                });
+                if let Some(h) = tmp125_handle.borrow().as_ref() {
+                    tmp125_snapshot.set(Some(read_tmp125_snapshot(h)));
                 }
 
                 let stop = match batch.reason {
@@ -335,6 +371,17 @@ fn app() -> Html {
             if let Some(h) = tmp101_handle.borrow().as_ref() {
                 h.set_temperature(celsius);
                 tmp101_snapshot.set(Some(read_tmp101_snapshot(h)));
+            }
+        })
+    };
+
+    let on_set_tmp125_temperature = {
+        let tmp125_handle = tmp125_handle.clone();
+        let tmp125_snapshot = tmp125_snapshot.clone();
+        Callback::from(move |celsius: f32| {
+            if let Some(h) = tmp125_handle.borrow().as_ref() {
+                h.set_temperature(celsius);
+                tmp125_snapshot.set(Some(read_tmp125_snapshot(h)));
             }
         })
     };
@@ -474,6 +521,10 @@ fn app() -> Html {
                                   tmp101={*tmp101_snapshot}
                                   on_set_tmp101_temperature={on_set_tmp101_temperature} />
 
+                        <SpiPanel bus={*spi_bus_snapshot}
+                                  tmp125={*tmp125_snapshot}
+                                  on_set_tmp125_temperature={on_set_tmp125_temperature} />
+
                         <div style="display:flex; justify-content:space-between; align-items:center; \
                                     font-size:0.8rem; color:#bac2de; border-top:1px solid #313244; \
                                     padding-top:6px;">
@@ -554,6 +605,13 @@ fn read_tmp101_snapshot(handle: &I2cHandle<Tmp101Device>) -> Tmp101Snapshot {
         config: d.config(),
         resolution,
     })
+}
+
+/// Snapshot the TMP125's UI-visible state through its SPI handle.
+fn read_tmp125_snapshot(handle: &SpiHandle<Tmp125Device>) -> Tmp125Snapshot {
+    Tmp125Snapshot {
+        temperature_c: handle.temperature(),
+    }
 }
 
 fn main() {

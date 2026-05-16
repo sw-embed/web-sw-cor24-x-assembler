@@ -44,6 +44,8 @@ pub const EXAMPLES: &[(&str, &str)] = &[
     // I2C demo — readable assembly source (web-local, tight read loop with
     // no idle delay so the TMP101 panel's slider drives output snappily).
     ("TMP101 read (i2c)", include_str!("examples/tmp101_read.s")),
+    // SPI demo — tight TMP125 read loop, mirrors the TMP101 shape.
+    ("TMP125 read (spi)", include_str!("examples/tmp125_read.s")),
 ];
 
 /// Look up a bundled example by display name.
