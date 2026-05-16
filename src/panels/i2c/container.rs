@@ -7,6 +7,7 @@
 
 use yew::prelude::*;
 
+use super::test_device::{TestDevicePanel, TestDeviceSnapshot};
 use super::tmp101::{Tmp101Panel, Tmp101Snapshot};
 
 /// Subset of `cor24_emulator::cpu::i2c_bus::I2cBusState` that the
@@ -43,20 +44,25 @@ impl Default for BusSnapshot {
 #[derive(Properties, PartialEq)]
 pub struct I2cPanelProps {
     pub bus: BusSnapshot,
-    /// `None` if the TMP101 isn't attached this run. Future devices
-    /// get their own optional prop here.
+    /// `None` if the TMP101 isn't attached this run.
     #[prop_or_default]
     pub tmp101: Option<Tmp101Snapshot>,
+    /// `None` if the test device isn't attached this run.
+    #[prop_or_default]
+    pub test_device: Option<TestDeviceSnapshot>,
     /// Fires when the user drags the TMP101 slider. Plumbed through
     /// to `Tmp101Panel`; ignored when `tmp101` is `None`.
     pub on_set_tmp101_temperature: Callback<f32>,
+    /// Fires when the user drags the test device's "poke" slider.
+    /// Ignored when `test_device` is `None`.
+    pub on_poke_test_device: Callback<u8>,
 }
 
 #[function_component(I2cPanel)]
 pub fn i2c_panel(props: &I2cPanelProps) -> Html {
     // Hide the whole block when no devices are attached to keep the
     // I/O column compact on programs that don't touch I2C.
-    if props.tmp101.is_none() && props.bus.attached == 0 {
+    if props.tmp101.is_none() && props.test_device.is_none() && props.bus.attached == 0 {
         return html! {};
     }
 
@@ -105,6 +111,10 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
             if let Some(snap) = props.tmp101 {
                 <Tmp101Panel snapshot={snap}
                              on_set_temperature={props.on_set_tmp101_temperature.clone()} />
+            }
+            if let Some(snap) = props.test_device {
+                <TestDevicePanel snapshot={snap}
+                                 on_poke={props.on_poke_test_device.clone()} />
             }
         </div>
     }

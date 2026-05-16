@@ -1,6 +1,6 @@
 number = 11
 slug = "i2c-test-device-panel-or-direction"
-status = "pending"
+status = "in-progress"
 description = """
 Pick from the future-step seeds in .agentrail/plan.md when the user
 directs t..."""

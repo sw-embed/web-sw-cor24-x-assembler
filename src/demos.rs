@@ -34,6 +34,11 @@ pub struct DemoConfig {
     /// strictly +1.
     pub attach_test_i2c: bool,
     pub attach_tmp125: bool,
+    /// The SPI EchoDevice test slave — one-byte buffer that the
+    /// next exchange drives on MISO. Same generalisation as the
+    /// I2C test device: this is the SPI bus's "exercise every path"
+    /// chip going forward.
+    pub attach_test_spi: bool,
 }
 
 impl DemoConfig {
@@ -41,21 +46,23 @@ impl DemoConfig {
         attach_tmp101: false,
         attach_test_i2c: false,
         attach_tmp125: false,
+        attach_test_spi: false,
     };
     pub const TMP101_ONLY: Self = Self {
         attach_tmp101: true,
-        attach_test_i2c: false,
-        attach_tmp125: false,
+        ..Self::NONE
     };
     pub const TEST_I2C_ONLY: Self = Self {
-        attach_tmp101: false,
         attach_test_i2c: true,
-        attach_tmp125: false,
+        ..Self::NONE
     };
     pub const TMP125_ONLY: Self = Self {
-        attach_tmp101: false,
-        attach_test_i2c: false,
         attach_tmp125: true,
+        ..Self::NONE
+    };
+    pub const TEST_SPI_ONLY: Self = Self {
+        attach_test_spi: true,
+        ..Self::NONE
     };
 }
 
@@ -84,6 +91,7 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Memory Access", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/memory_access.s"), config: DemoConfig::NONE },
     Demo { name: "Multiply", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/multiply.s"), config: DemoConfig::NONE },
     Demo { name: "Nested Calls", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/nested_calls.s"), config: DemoConfig::NONE },
+    Demo { name: "SPI Echo Ping", source: include_str!("examples/spi_echo_ping.s"), config: DemoConfig::TEST_SPI_ONLY },
     Demo { name: "SPI TMP125 Read", source: include_str!("examples/tmp125_read.s"), config: DemoConfig::TMP125_ONLY },
     Demo { name: "Stack Variables", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s"), config: DemoConfig::NONE },
     Demo { name: "UART Hello", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s"), config: DemoConfig::NONE },
