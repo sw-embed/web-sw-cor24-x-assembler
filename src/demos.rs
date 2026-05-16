@@ -1,57 +1,96 @@
 //! Bundled COR24 assembly example catalog for the Load-demo dropdown.
 //!
 //! Sources are embedded via `include_str!` from sibling
-//! `sw-cor24-x-assembler/src/examples/assembler/` so the web UI
-//! doesn't need a runtime fetch. Display names mirror the
-//! `examples()` list in `sw-cor24-x-assembler/tests/integration_tests.rs`
-//! so anyone cross-referencing between the two finds the same labels.
+//! `sw-cor24-x-assembler/src/examples/assembler/` and (for the
+//! bus-using demos) from this repo's `src/examples/`. Display names
+//! are alphabetized; bus demos use a leading "I2C " / "SPI " prefix
+//! so they group naturally in the dropdown.
 //!
-//! Adding a new example: drop the .s file in the sibling repo, append
-//! the `(name, include_str!(...))` tuple here, and (if it's not
-//! halting) make sure the existing `non_halting` UI logic in `main.rs`
-//! knows to expect that.
+//! Each demo declares which simulated peripherals it uses via
+//! `DemoConfig`; `main.rs` reads that on Assemble & Run to attach
+//! only the relevant devices, so the device panels for unrelated
+//! buses stay hidden during that demo.
+//!
+//! Adding a new example: drop the .s file, append the `Demo { ... }`
+//! tuple in the alphabetical slot, and (if it touches I2C/SPI) set
+//! the matching attach flag(s).
 
 pub const DEFAULT_SOURCE: &str = include_str!(
     "../../sw-cor24-x-assembler/src/examples/assembler/button_echo.s"
 );
 
-/// All bundled examples, ordered to match
-/// sw-cor24-x-assembler/tests/integration_tests.rs::examples(),
-/// with I2C demos appended at the end. I2C entries are pre-built
-/// `.lgo` files from sibling `sw-cor24-emulator/examples/i2c/`; the
-/// `Assemble & Run` dispatch in `main.rs` detects the `L<6-hex>`
-/// signature and loads them via `EmulatorCore::load_lgo` rather
-/// than running them through `cor24-assembler`.
-pub const EXAMPLES: &[(&str, &str)] = &[
-    ("Add", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/add.s")),
-    ("Assert", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/assert.s")),
-    ("Blink LED", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/blink_led.s")),
-    ("Button Echo", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo.s")),
-    ("Button Echo (MakerLisp)", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo_makerlisp.s")),
-    ("Comments", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/comments.s")),
-    ("Countdown", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s")),
-    ("Echo", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s")),
-    ("Fibonacci", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s")),
-    ("I2C Add1 Ping", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_add1_ping.s")),
-    ("Literals", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/literals.s")),
-    ("Loop Trace", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/loop_trace.s")),
-    ("Memory Access", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/memory_access.s")),
-    ("Multiply", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/multiply.s")),
-    ("Nested Calls", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/nested_calls.s")),
-    ("Stack Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s")),
-    ("UART Hello", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s")),
-    ("Variables", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/variables.s")),
-    // I2C demo — readable assembly source (web-local, tight read loop with
-    // no idle delay so the TMP101 panel's slider drives output snappily).
-    ("TMP101 read (i2c)", include_str!("examples/tmp101_read.s")),
-    // SPI demo — tight TMP125 read loop, mirrors the TMP101 shape.
-    ("TMP125 read (spi)", include_str!("examples/tmp125_read.s")),
+/// Which simulated peripherals a demo expects on the bus when run.
+///
+/// `DemoConfig::NONE` means "purely-software demo, no buses needed"
+/// — the I2C and SPI panels stay hidden. Each `true` flag attaches
+/// one specific device at its canonical address; the panel for that
+/// device then becomes visible while the demo runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DemoConfig {
+    pub attach_tmp101: bool,
+    /// The Add1 test slave at I2C 0x50 — kept under the "test device"
+    /// name in the UI because the slave's role is "exercise every
+    /// bus-state path and add registers as we go" rather than
+    /// strictly +1.
+    pub attach_test_i2c: bool,
+    pub attach_tmp125: bool,
+}
+
+impl DemoConfig {
+    pub const NONE: Self = Self {
+        attach_tmp101: false,
+        attach_test_i2c: false,
+        attach_tmp125: false,
+    };
+    pub const TMP101_ONLY: Self = Self {
+        attach_tmp101: true,
+        attach_test_i2c: false,
+        attach_tmp125: false,
+    };
+    pub const TEST_I2C_ONLY: Self = Self {
+        attach_tmp101: false,
+        attach_test_i2c: true,
+        attach_tmp125: false,
+    };
+    pub const TMP125_ONLY: Self = Self {
+        attach_tmp101: false,
+        attach_test_i2c: false,
+        attach_tmp125: true,
+    };
+}
+
+pub struct Demo {
+    pub name: &'static str,
+    pub source: &'static str,
+    pub config: DemoConfig,
+}
+
+/// All bundled examples, alphabetical by display name.
+/// I2C/SPI demos use a "I2C " / "SPI " prefix to group naturally.
+pub const EXAMPLES: &[Demo] = &[
+    Demo { name: "Add", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/add.s"), config: DemoConfig::NONE },
+    Demo { name: "Assert", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/assert.s"), config: DemoConfig::NONE },
+    Demo { name: "Blink LED", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/blink_led.s"), config: DemoConfig::NONE },
+    Demo { name: "Button Echo", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo.s"), config: DemoConfig::NONE },
+    Demo { name: "Button Echo (MakerLisp)", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo_makerlisp.s"), config: DemoConfig::NONE },
+    Demo { name: "Comments", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/comments.s"), config: DemoConfig::NONE },
+    Demo { name: "Countdown", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s"), config: DemoConfig::NONE },
+    Demo { name: "Echo", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s"), config: DemoConfig::NONE },
+    Demo { name: "Fibonacci", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s"), config: DemoConfig::NONE },
+    Demo { name: "I2C TMP101 Read", source: include_str!("examples/tmp101_read.s"), config: DemoConfig::TMP101_ONLY },
+    Demo { name: "I2C Test Device Ping", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_add1_ping.s"), config: DemoConfig::TEST_I2C_ONLY },
+    Demo { name: "Literals", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/literals.s"), config: DemoConfig::NONE },
+    Demo { name: "Loop Trace", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/loop_trace.s"), config: DemoConfig::NONE },
+    Demo { name: "Memory Access", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/memory_access.s"), config: DemoConfig::NONE },
+    Demo { name: "Multiply", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/multiply.s"), config: DemoConfig::NONE },
+    Demo { name: "Nested Calls", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/nested_calls.s"), config: DemoConfig::NONE },
+    Demo { name: "SPI TMP125 Read", source: include_str!("examples/tmp125_read.s"), config: DemoConfig::TMP125_ONLY },
+    Demo { name: "Stack Variables", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s"), config: DemoConfig::NONE },
+    Demo { name: "UART Hello", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s"), config: DemoConfig::NONE },
+    Demo { name: "Variables", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/variables.s"), config: DemoConfig::NONE },
 ];
 
 /// Look up a bundled example by display name.
-pub fn lookup(name: &str) -> Option<&'static str> {
-    EXAMPLES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, src)| *src)
+pub fn lookup(name: &str) -> Option<&'static Demo> {
+    EXAMPLES.iter().find(|d| d.name == name)
 }

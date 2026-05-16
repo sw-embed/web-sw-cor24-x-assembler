@@ -35,6 +35,12 @@ use panels::{
 fn app() -> Html {
     let source = use_state(|| demos::DEFAULT_SOURCE.to_string());
 
+    // Bus-device attach configuration. Starts at NONE (the default
+    // demo, button_echo, doesn't touch any bus); each demo selected
+    // from the dropdown updates this to its declared `DemoConfig`.
+    // The user's own typed source uses whatever was last loaded.
+    let demo_config = use_state(|| demos::DemoConfig::NONE);
+
     // Assembly state
     let listing = use_state(Vec::<AssembledLine>::new);
     let assemble_error = use_state(|| None::<assembler::AssembleError>);
@@ -108,11 +114,13 @@ fn app() -> Html {
         let tmp125_handle = tmp125_handle.clone();
         let spi_bus_snapshot = spi_bus_snapshot.clone();
         let tmp125_snapshot = tmp125_snapshot.clone();
+        let demo_config = demo_config.clone();
 
         Callback::from(move |_: MouseEvent| {
             // Stop any existing run loop.
             *interval_handle.borrow_mut() = None;
             runtime_error_line.set(None);
+            let config = *demo_config;
 
             // Two source flavors: COR24 assembly (.s) goes through
             // cor24-assembler; an .lgo load-file (any line starting
@@ -138,12 +146,13 @@ fn app() -> Html {
             assemble_error.set(None);
 
             // Reset emulator, load program (assembled bytes or .lgo),
-            // attach I2C + SPI devices. The previous run's typed
-            // handles die with the old EmulatorCore (the I2C routing
-            // table and the SPI device slot are both dropped), so we
-            // attach fresh each run and stash the new handles for
-            // the tick loop.
-            let (new_tmp101_handle, new_tmp125_handle) = {
+            // attach only the devices the current demo declares it
+            // needs (via DemoConfig). Devices not attached this run
+            // have their snapshot cleared so the matching panels
+            // stay hidden -- so picking 'I2C TMP101 Read' shows only
+            // the TMP101 card, not the unrelated test-device row
+            // or the SPI bus.
+            let (h_tmp101, h_tmp125) = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 match &bytes {
@@ -165,30 +174,51 @@ fn app() -> Html {
                     }
                 }
                 e.set_button_pressed(*switch_pressed);
-                let h_i2c = e
-                    .attach_i2c_device(Tmp101Device::new(
-                        cor24_emulator::peripherals::i2c::devices::tmp101::DEFAULT_ADDRESS,
-                    ))
-                    .expect("TMP101 default address is free on a fresh bus");
-                // Add1 test slave at 0x50 — the address the bundled
-                // 'I2C Add1 Ping' demo expects. The two devices live at
-                // different addresses (0x4A vs 0x50) so they coexist.
-                e.attach_i2c_device(Add1Device::new(0x50, 0))
-                    .expect("Add1 address 0x50 is free on a fresh bus");
-                // SPI is single-slave today; attach TMP125 fresh so
-                // the bundled 'TMP125 read (spi)' demo finds it.
-                let h_spi = e.attach_spi_device(Tmp125Device::new());
+
+                let h_tmp101 = if config.attach_tmp101 {
+                    Some(
+                        e.attach_i2c_device(Tmp101Device::new(
+                            cor24_emulator::peripherals::i2c::devices::tmp101::DEFAULT_ADDRESS,
+                        ))
+                        .expect("TMP101 default address free on a fresh bus"),
+                    )
+                } else {
+                    None
+                };
+                if config.attach_test_i2c {
+                    // Add1 test slave at 0x50 — the slot the bundled
+                    // 'I2C Test Device Ping' demo addresses. The chip
+                    // is named "test device" in the UI because its
+                    // eventual role is "exercise every bus path; gain
+                    // registers as we go", not strictly add-one.
+                    e.attach_i2c_device(Add1Device::new(0x50, 0))
+                        .expect("test-device address 0x50 free on a fresh bus");
+                }
+                let h_tmp125 = if config.attach_tmp125 {
+                    Some(e.attach_spi_device(Tmp125Device::new()))
+                } else {
+                    None
+                };
+
                 e.resume();
-                (h_i2c, h_spi)
+                (h_tmp101, h_tmp125)
             };
 
-            // Seed both bus-device panels with the freshly-attached
-            // device state so the cards show up immediately, before
-            // any tick.
-            tmp101_snapshot.set(Some(read_tmp101_snapshot(&new_tmp101_handle)));
-            *tmp101_handle.borrow_mut() = Some(new_tmp101_handle);
-            tmp125_snapshot.set(Some(read_tmp125_snapshot(&new_tmp125_handle)));
-            *tmp125_handle.borrow_mut() = Some(new_tmp125_handle);
+            // Seed each device-card snapshot if its device was
+            // attached; otherwise clear the snapshot so the panel
+            // hides for this run.
+            if let Some(h) = &h_tmp101 {
+                tmp101_snapshot.set(Some(read_tmp101_snapshot(h)));
+            } else {
+                tmp101_snapshot.set(None);
+            }
+            *tmp101_handle.borrow_mut() = h_tmp101;
+            if let Some(h) = &h_tmp125 {
+                tmp125_snapshot.set(Some(read_tmp125_snapshot(h)));
+            } else {
+                tmp125_snapshot.set(None);
+            }
+            *tmp125_handle.borrow_mut() = h_tmp125;
 
             // Reset display state.
             uart_output.set(String::new());
@@ -393,6 +423,7 @@ fn app() -> Html {
         let interval_handle = interval_handle.clone();
         let running = running.clone();
         let status_msg = status_msg.clone();
+        let demo_config = demo_config.clone();
         Callback::from(move |e: Event| {
             let Some(select) = e
                 .target()
@@ -410,8 +441,9 @@ fn app() -> Html {
             *interval_handle.borrow_mut() = None;
             running.set(false);
 
-            if let Some(src) = demos::lookup(&value) {
-                source.set(src.to_string());
+            if let Some(demo) = demos::lookup(&value) {
+                source.set(demo.source.to_string());
+                demo_config.set(demo.config);
                 assemble_error.set(None);
                 listing.set(Vec::new());
                 status_msg.set(format!("Loaded: {value}"));
@@ -558,8 +590,8 @@ fn app() -> Html {
                            border:1px solid #585b70; border-radius:6px; font-size:0.85rem; \
                            cursor:pointer;">
                     <option value="" selected=true disabled=true>{"Load demo..."}</option>
-                    { for demos::EXAMPLES.iter().map(|(name, _)| html! {
-                        <option value={*name}>{*name}</option>
+                    { for demos::EXAMPLES.iter().map(|d| html! {
+                        <option value={d.name}>{d.name}</option>
                     }) }
                 </select>
             </div>

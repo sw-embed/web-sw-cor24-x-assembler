@@ -8,19 +8,33 @@ Closest scaffold reference: web-sw-cor24-x-tinyc (Yew + Trunk shape, panels/ pat
 
 1. bootstrap-saga -- Consolidate AGENTS.md / CLAUDE.md, init this saga, stage sibling clones for path-deps. (DONE)
 
-2. makerlisp-button-echo -- Add a Button Echo variation reproducing the 27-byte MakerLisp blinky_s2 listing to sibling sw-cor24-x-assembler's example set. (DONE -- handed off to dcxas via brief; awaiting relay.)
+2. makerlisp-button-echo -- Add a Button Echo variation reproducing the 27-byte MakerLisp blinky_s2 listing to sibling sw-cor24-x-assembler's example set. (DONE)
 
-3. pages-pipeline-bootstrap -- Set up the pages-deploy infrastructure modelled on web-sw-cor24-basic: scripts/build-pages.sh, scripts/serve.sh, .github/workflows/pages.yml, pages/ + pages/.nojekyll seeded from current scaffold, README live-demo link. Repo settings already configured for GH Actions Pages deployment by mike.
+3. pages-pipeline-bootstrap -- ./scripts/build-pages.sh, ./scripts/serve.sh, GH-Actions deploy of ./pages/. (DONE)
 
-4. demo-extraction-port -- Port the Assembler tab from cor24-rs/src/app.rs into src/, with src/panels/{led,switch,uart,registers,listing}.rs following the web-sw-cor24-x-tinyc pattern. Wire cor24-assembler for assembly and cor24-emulator for execution. Bundled example list including both Button Echo variants.
+4. demo-extraction-port -- Yew app: editor + listing + emulator I/O panel; LED/switch/UART/registers panels; assembler-driven run loop. (DONE)
 
-5. i2c-panels-framework -- Add src/panels/i2c/ with an extensible device-panel trait + registry so future I2C devices (RTC, LCD, sensors, switches, displays) drop in without touching the I/O panel container. Hooks into cor24-emulator's I2cHandle/I2cDevice plumbing.
+5. i2c-panels-framework -- src/panels/i2c/ skeleton (BusSnapshot, container, Tmp101Snapshot stub). (DONE)
 
-6. i2c-tmp101-panel -- First concrete I2C device-panel: TMP101 temperature probe. Shows current temperature register value (with active resolution), lets the user drag a slider to set the simulated °C, reflects guest reads. Verifies the i2c/tmp101.lgo demo runs end-to-end in the browser.
+6. i2c-tmp101-panel -- TMP101 slider control + .lgo demo. (DONE)
+
+7. fix-tmp101-demo -- Bumped per-tick run_batch budget so slider visibly drives output through the upstream .lgo's idle loop. (DONE)
+
+8. demo-polish-and-more-devices -- Readable .s TMP101 demo, "I2C Test Device Ping" demo wired in (per dcxas brief), UART autoscroll. (DONE -- demo originally named after the Add1 chip; renamed to "test device" in step 10 because the upstream slave's role generalised beyond +1.)
+
+9. spi-tmp125-and-followups -- SPI panel framework + TMP125 device card + spi tight-loop .s demo + run-loop budget pulled back to 100k/tick + UART display capped at 4 KB tail. (DONE)
+
+10. per-demo-device-config -- Each bundled demo now declares which simulated peripherals it expects (DemoConfig in src/demos.rs); only those devices are attached on Assemble & Run, so picking 'I2C TMP101 Read' shows only the TMP101 card and 'SPI TMP125 Read' shows only the TMP125 card. Renamed dropdown entries: 'I2C TMP101 Read', 'I2C Test Device Ping', 'SPI TMP125 Read' -- all bus demos start with their bus name; full list re-alphabetized. Fixed UART layout (was absorbing column space and overlapping the next panel). Renamed the Add1 slave to 'I2C Test Device' in the UI -- the device will grow registers beyond +1 as we add functionality, so the name reflects that broader role going forward.
 
 ## Future-step seeds (not yet stepped)
 
-- i2c-rtc-panel  (DS3231-style real-time clock; date/time controls)
-- i2c-lcd-panel  (HD44780-style character LCD; mirror the 16x2 display)
-- i2c-additional-sensors / -switches / -displays as device implementations land in cor24-emulator
-- ui-polish: keyboard shortcuts, dark/light theme, mobile responsive
+- i2c-test-device-panel -- src/panels/i2c/test_device.rs that shows the device's stored byte (`Add1Device::peek`) and exposes a poke control as it gains registers. Naming: "test device" in UI; underlying type stays `Add1Device` until a cross-repo brief renames it.
+- i2c-rtc-panel  (DS3231-style real-time clock; needs device impl in sw-cor24-emulator first -- brief dcemu if absent)
+- i2c-lcd-panel  (HD44780-style character LCD; same precondition)
+- adaptive run-loop budget: replace the static 100k/tick with a wall-clock budget (~8 ms/tick) using web_sys Performance so demos with varying loop bodies all stay snappy without per-demo tuning
+- ui-polish: keyboard shortcut to Run (Cmd/Ctrl + Enter), light/dark theme toggle, mobile responsive layout
+- .lgo disassembly toggle (cor24_emulator::EmulatorCore::disassemble) for users who paste raw .lgo into the editor
+
+## Naming convention going forward
+
+Bus-using demos are prefixed by their bus (I2C / SPI) and capitalized words; the list stays alphabetical on the bus prefix so I2C demos cluster between 'I' words and SPI demos cluster between 'S' words.
