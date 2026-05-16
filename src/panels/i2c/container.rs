@@ -47,6 +47,9 @@ pub struct I2cPanelProps {
     /// get their own optional prop here.
     #[prop_or_default]
     pub tmp101: Option<Tmp101Snapshot>,
+    /// Fires when the user drags the TMP101 slider. Plumbed through
+    /// to `Tmp101Panel`; ignored when `tmp101` is `None`.
+    pub on_set_tmp101_temperature: Callback<f32>,
 }
 
 #[function_component(I2cPanel)]
@@ -100,7 +103,8 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
             // Per-device cards. Adding a new device = a new optional
             // prop above and a new render branch here.
             if let Some(snap) = props.tmp101 {
-                <Tmp101Panel snapshot={snap} />
+                <Tmp101Panel snapshot={snap}
+                             on_set_temperature={props.on_set_tmp101_temperature.clone()} />
             }
         </div>
     }

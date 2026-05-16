@@ -51,6 +51,27 @@ fn parse_line_from_error(msg: &str) -> Option<usize> {
     rest[..end].parse().ok()
 }
 
+/// Best-effort sniffer: does `source` look like a `.lgo` load file
+/// rather than COR24 assembly source?
+///
+/// `.lgo` lines are `L<6-hex><payload>` or `G<6-hex>`. Returns true
+/// as soon as any L-record line is found, allowing the run-button to
+/// route the source through `EmulatorCore::load_lgo` instead of the
+/// assembler. Assembly source uses `;` for comments and never has a
+/// bare line of the form `L` + 6 hex digits.
+pub fn looks_like_lgo(source: &str) -> bool {
+    for line in source.lines() {
+        let trimmed = line.trim();
+        if trimmed.len() < 7 {
+            continue;
+        }
+        if trimmed.starts_with('L') && trimmed[1..7].chars().all(|c| c.is_ascii_hexdigit()) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Find the 1-based listing line whose address range contains the
 /// given PC, so a runtime fault can highlight the right line.
 pub fn pc_to_listing_line(listing: &[AssembledLine], pc: u32) -> Option<usize> {
