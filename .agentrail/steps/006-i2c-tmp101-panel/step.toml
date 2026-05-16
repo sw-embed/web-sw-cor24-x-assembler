@@ -1,0 +1,10 @@
+number = 6
+slug = "i2c-tmp101-panel"
+status = "pending"
+description = """
+Make the TMP101 card interactive: a slider (range input) lets the
+user set th..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-15T19:15:35"
+commits = []
