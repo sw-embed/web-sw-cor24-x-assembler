@@ -1,0 +1,10 @@
+number = 3
+slug = "pages-pipeline-bootstrap"
+status = "in-progress"
+description = """
+Set up the pages-deploy infrastructure for web-sw-cor24-x-assembler,
+modelled..."""
+role = "production"
+context_files = []
+created_at = "2026-05-15T17:43:19"
+commits = []
