@@ -1,0 +1,10 @@
+number = 7
+slug = "fix-tmp101-demo"
+status = "in-progress"
+description = """
+The 'TMP101 read (i2c, .lgo)' demo shipped in step 006 has two real
+problems ..."""
+role = "production"
+context_files = []
+created_at = "2026-05-15T19:36:24"
+commits = []
