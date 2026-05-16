@@ -8,7 +8,7 @@ Part of the [Software Wrighter COR24 Tools Project](https://sw-embed.github.io/w
 
 ## Status
 
-**Initial scaffold deployed.** Pages pipeline (build + GH Actions) is wired up; the page boots a placeholder Yew app. Assembler-tab port from [cor24-rs](https://github.com/sw-embed/cor24-rs) (in deprecation in favor of the split `sw-cor24-emulator` + `sw-cor24-x-tinyc` + `sw-cor24-x-assembler` repos) is the next saga step, followed by I/O panels including I2C-device simulation (starting with TMP101).
+**Working demo deployed.** Three-pane layout (assembly source on the left, listing in the middle, emulator I/O panel on the right) with a Load-demo dropdown of bundled examples from [sw-cor24-x-assembler](https://github.com/sw-embed/sw-cor24-x-assembler). LED, switch S2, UART, and register view live; press *Assemble & Run* to run a program. I2C-device panels (starting with TMP101 simulation, then RTC / LCD / additional sensors) are the next saga steps.
 
 ## Related
 

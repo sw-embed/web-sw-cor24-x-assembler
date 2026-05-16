@@ -1,6 +1,6 @@
 number = 4
 slug = "demo-extraction-port"
-status = "pending"
+status = "in-progress"
 description = """
 With the MakerLisp Button Echo variant in place upstream in the
 sibling sw-co..."""
