@@ -50,8 +50,14 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
     let truncated = raw.len() > DISPLAY_TAIL_BYTES;
 
     html! {
-        <div style="flex:1; min-height:80px;">
-            <div style="color:#bac2de; font-size:0.8rem; margin-bottom:2px;">
+        // Container sizes to content (label + capped log). The
+        // previous `flex:1` made it absorb all free space in the I/O
+        // column, which pushed siblings below the fold and made the
+        // log appear to "overlap" the next panel on overflow.
+        // `flex-shrink:0` keeps it from collapsing below its natural
+        // height when many panels share the column.
+        <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
+            <div style="color:#bac2de; font-size:0.8rem;">
                 {"UART"}
                 if props.running {
                     <span style="color:#a6adc8;">{" (type here for input)"}</span>
@@ -66,9 +72,9 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
                 onkeydown={props.on_key.clone()} tabindex="0"
                 style="background:#11111b; color:#a6e3a1; padding:8px; border-radius:4px; \
                        font-family:monospace; font-size:13px; white-space:pre-wrap; \
-                       min-height:40px; max-height:200px; overflow:auto; \
+                       min-height:40px; max-height:140px; overflow:auto; \
                        outline:none; cursor:text; \
-                       border:1px solid transparent;">
+                       border:1px solid transparent; box-sizing:border-box;">
                 { if raw.is_empty() && !props.running && !props.halted {
                     html! { <span style="color:#a6adc8;">{"(no output)"}</span> }
                 } else {

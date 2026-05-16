@@ -1,6 +1,6 @@
 number = 10
 slug = "followups-or-user-direction"
-status = "pending"
+status = "in-progress"
 description = """
 The 'more devices' theme has shipped enough for now (LED, switch,
 UART, regis..."""
