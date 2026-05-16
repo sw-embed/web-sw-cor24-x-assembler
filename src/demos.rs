@@ -17,17 +17,12 @@ pub const DEFAULT_SOURCE: &str = include_str!(
 
 /// All bundled examples, ordered to match
 /// sw-cor24-x-assembler/tests/integration_tests.rs::examples().
-///
-/// NOTE: "Button Echo (MakerLisp)" lives on
-/// sibling pr/makerlisp-button-echo and lands once the coordinator
-/// relays the brief at tools/briefs/dcxas-makerlisp-button-echo.md —
-/// add it here in the same commit that re-builds pages/ after the
-/// sibling's pr/ merges.
 pub const EXAMPLES: &[(&str, &str)] = &[
     ("Add", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/add.s")),
     ("Assert", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/assert.s")),
     ("Blink LED", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/blink_led.s")),
     ("Button Echo", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo.s")),
+    ("Button Echo (MakerLisp)", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/button_echo_makerlisp.s")),
     ("Comments", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/comments.s")),
     ("Countdown", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s")),
     ("Echo", include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s")),
