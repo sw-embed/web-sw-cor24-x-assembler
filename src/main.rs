@@ -17,12 +17,15 @@ use std::rc::Rc;
 
 use cor24_assembler::AssembledLine;
 use cor24_emulator::EmulatorCore;
+use cor24_emulator::peripherals::i2c::{I2cDevice, I2cHandle, Tmp101Device, Tmp101HandleExt};
 use wasm_bindgen::JsCast;
 use web_sys::{HtmlSelectElement, KeyboardEvent};
 use yew::prelude::*;
 
 use editor::Editor;
-use panels::{LedPanel, RegistersPanel, SwitchPanel, UartPanel};
+use panels::{
+    BusSnapshot, I2cPanel, LedPanel, RegistersPanel, SwitchPanel, Tmp101Snapshot, UartPanel,
+};
 
 #[function_component(App)]
 fn app() -> Html {
@@ -49,6 +52,14 @@ fn app() -> Html {
 
     // Switch S2
     let switch_pressed = use_state(|| false);
+
+    // I2C device handles + per-tick snapshots. A fresh TMP101 is
+    // attached at each Assemble & Run so the typed handle's weak ref
+    // to the bus's routing table doesn't outlive the EmulatorCore
+    // that owns it.
+    let tmp101_handle: Rc<RefCell<Option<I2cHandle<Tmp101Device>>>> = use_mut_ref(|| None);
+    let bus_snapshot = use_state(BusSnapshot::default);
+    let tmp101_snapshot = use_state(|| None::<Tmp101Snapshot>);
 
     // UART input buffer (keyboard → emulator, drained in run loop)
     let uart_input: Rc<RefCell<std::collections::VecDeque<u8>>> =
@@ -82,6 +93,9 @@ fn app() -> Html {
         let runtime_error_line = runtime_error_line.clone();
         let interval_handle = interval_handle.clone();
         let switch_pressed = switch_pressed.clone();
+        let tmp101_handle = tmp101_handle.clone();
+        let bus_snapshot = bus_snapshot.clone();
+        let tmp101_snapshot = tmp101_snapshot.clone();
 
         Callback::from(move |_: MouseEvent| {
             // Stop any existing run loop.
@@ -101,15 +115,29 @@ fn app() -> Html {
             }
             assemble_error.set(None);
 
-            // Reset emulator and load binary.
-            {
+            // Reset emulator, load binary, attach I2C devices. The
+            // previous run's I2cHandle dies with the old EmulatorCore
+            // (the bus routing table is dropped), so we attach fresh
+            // each run and stash the new handle for the tick loop.
+            let new_tmp101_handle = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 e.load_program(0, &output.bytes);
                 e.load_program_extent(output.bytes.len() as u32);
                 e.set_button_pressed(*switch_pressed);
+                let h = e
+                    .attach_i2c_device(Tmp101Device::new(
+                        cor24_emulator::peripherals::i2c::devices::tmp101::DEFAULT_ADDRESS,
+                    ))
+                    .expect("TMP101 default address is free on a fresh bus");
                 e.resume();
-            }
+                h
+            };
+
+            // Seed the TMP101 panel with the freshly-attached device
+            // state so the card shows up immediately, before any tick.
+            tmp101_snapshot.set(Some(read_tmp101_snapshot(&new_tmp101_handle)));
+            *tmp101_handle.borrow_mut() = Some(new_tmp101_handle);
 
             // Reset display state.
             uart_output.set(String::new());
@@ -121,6 +149,7 @@ fn app() -> Html {
             instr_count.set(0);
             status_msg.set("Running".into());
             running.set(true);
+            bus_snapshot.set(BusSnapshot::default());
 
             // Clear input buffer.
             uart_input.borrow_mut().clear();
@@ -140,6 +169,9 @@ fn app() -> Html {
             let runtime_error_line = runtime_error_line.clone();
             let listing = listing.clone();
             let interval_handle2 = interval_handle.clone();
+            let tmp101_handle = tmp101_handle.clone();
+            let bus_snapshot = bus_snapshot.clone();
+            let tmp101_snapshot = tmp101_snapshot.clone();
 
             let interval = gloo_timers::callback::Interval::new(16, move || {
                 let mut e = emu.borrow_mut();
@@ -168,6 +200,19 @@ fn app() -> Html {
                 cond_flag.set(e.condition_flag());
                 led_state.set(e.get_led());
                 instr_count.set(e.instructions_count());
+
+                // Update I2C bus header + per-device snapshots.
+                let bus = e.i2c();
+                bus_snapshot.set(BusSnapshot {
+                    idle: bus.phase == cor24_emulator::cpu::i2c_bus::I2cPhase::Idle,
+                    last_byte: bus.last_byte,
+                    last_addressed: bus.last_addressed,
+                    transactions: bus.transactions,
+                    attached: bus.addresses.len(),
+                });
+                if let Some(h) = tmp101_handle.borrow().as_ref() {
+                    tmp101_snapshot.set(Some(read_tmp101_snapshot(h)));
+                }
 
                 let stop = match batch.reason {
                     cor24_emulator::StopReason::Halted => {
@@ -374,6 +419,8 @@ fn app() -> Html {
                             <SwitchPanel pressed={*switch_pressed} on_toggle={on_switch_toggle} />
                         </div>
 
+                        <I2cPanel bus={*bus_snapshot} tmp101={*tmp101_snapshot} />
+
                         <div style="display:flex; justify-content:space-between; align-items:center; \
                                     font-size:0.8rem; color:#bac2de; border-top:1px solid #313244; \
                                     padding-top:6px;">
@@ -440,6 +487,20 @@ fn app() -> Html {
             </div>
         </main>
     }
+}
+
+/// Snapshot the TMP101's UI-visible state through its typed handle.
+/// Called from both the initial attach (to seed the panel) and from
+/// the run-loop tick (to refresh it).
+fn read_tmp101_snapshot(handle: &I2cHandle<Tmp101Device>) -> Tmp101Snapshot {
+    let temperature_c = handle.temperature();
+    let resolution = handle.resolution();
+    handle.with(|d| Tmp101Snapshot {
+        address: d.address(),
+        temperature_c,
+        config: d.config(),
+        resolution,
+    })
 }
 
 fn main() {
