@@ -1,10 +1,11 @@
 number = 12
 slug = "i2c-rtc-ds1307"
-status = "pending"
+status = "completed"
 description = """
 Implement an I2C RTC device + demo following the recommendations in
 sw-cor24-..."""
 role = "legacy"
 context_files = []
 created_at = "2026-05-16T09:39:10"
-commits = []
+completed_at = "2026-05-16T18:42:41"
+commits = ["95824e8c27f3aa5fd194fff11e177282db09d41f"]

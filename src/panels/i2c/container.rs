@@ -7,6 +7,7 @@
 
 use yew::prelude::*;
 
+use super::rtc::{Ds1307Panel, Ds1307Snapshot};
 use super::test_device::{TestDevicePanel, TestDeviceSnapshot};
 use super::tmp101::{Tmp101Panel, Tmp101Snapshot};
 
@@ -50,19 +51,32 @@ pub struct I2cPanelProps {
     /// `None` if the test device isn't attached this run.
     #[prop_or_default]
     pub test_device: Option<TestDeviceSnapshot>,
+    /// `None` if the DS1307 RTC isn't attached this run.
+    #[prop_or_default]
+    pub ds1307: Option<Ds1307Snapshot>,
+    /// Whether the "Battery on" toggle is currently selected.
+    /// Ignored when `ds1307` is `None`.
+    #[prop_or_default]
+    pub ds1307_battery_enabled: bool,
     /// Fires when the user drags the TMP101 slider. Plumbed through
     /// to `Tmp101Panel`; ignored when `tmp101` is `None`.
     pub on_set_tmp101_temperature: Callback<f32>,
     /// Fires when the user drags the test device's "poke" slider.
     /// Ignored when `test_device` is `None`.
     pub on_poke_test_device: Callback<u8>,
+    /// Fires when the user flips the battery radio on/off.
+    pub on_toggle_ds1307_battery: Callback<bool>,
 }
 
 #[function_component(I2cPanel)]
 pub fn i2c_panel(props: &I2cPanelProps) -> Html {
     // Hide the whole block when no devices are attached to keep the
     // I/O column compact on programs that don't touch I2C.
-    if props.tmp101.is_none() && props.test_device.is_none() && props.bus.attached == 0 {
+    if props.tmp101.is_none()
+        && props.test_device.is_none()
+        && props.ds1307.is_none()
+        && props.bus.attached == 0
+    {
         return html! {};
     }
 
@@ -115,6 +129,11 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
             if let Some(snap) = props.test_device {
                 <TestDevicePanel snapshot={snap}
                                  on_poke={props.on_poke_test_device.clone()} />
+            }
+            if let Some(snap) = props.ds1307 {
+                <Ds1307Panel snapshot={snap}
+                             battery_enabled={props.ds1307_battery_enabled}
+                             on_toggle_battery={props.on_toggle_ds1307_battery.clone()} />
             }
         </div>
     }
