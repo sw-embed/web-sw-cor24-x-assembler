@@ -13,7 +13,7 @@ pub mod spi;
 pub mod switch;
 pub mod uart;
 
-pub use i2c::{BusSnapshot, I2cPanel, TestDeviceSnapshot, Tmp101Snapshot};
+pub use i2c::{BusSnapshot, Ds1307Snapshot, I2cPanel, TestDeviceSnapshot, Tmp101Snapshot};
 pub use led::LedPanel;
 pub use registers::RegistersPanel;
 pub use spi::{EchoSnapshot, SpiBusSnapshot, SpiPanel, Tmp125Snapshot};
