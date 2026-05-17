@@ -406,15 +406,50 @@ fn app() -> Html {
                     }
                 }
 
-                // Instructions per 16 ms tick. 100k is the sweet spot for
-                // the current demo mix: tight read-print loops (no idle
-                // delay) stay snappy and the UI thread keeps up with
-                // slider events. The earlier 1M tuning was needed for
-                // the now-removed tmp101.lgo (which spun a 16M-iteration
-                // delay between reads); with all bundled demos being
-                // hand-tuned .s, that budget pegged CPU and made the
-                // sliders unresponsive.
-                let batch = e.run_batch(100_000);
+                // Adaptive per-tick budget. The prior static 100k/tick
+                // was right for the bundled demos but wrong for any
+                // user-pasted source with a non-trivial idle loop
+                // (the upstream tmp101.lgo's `t = -1; while (t--){}`
+                // delay was the example that motivated the earlier
+                // 1M tuning bump, which then made tight loops jank
+                // -- two static values and neither worked everywhere).
+                //
+                // Instead: run 50k-instruction chunks back-to-back,
+                // stop when ~8 ms of wall-clock has elapsed or the
+                // emulator halts/faults. So tight loops complete
+                // hundreds of thousands of instructions a tick while
+                // slow ones still pump enough to make visible
+                // progress, and the UI thread stays responsive
+                // because no tick blocks for longer than the
+                // deadline. Falls back to a single 100k-instruction
+                // chunk if Performance is unavailable.
+                const CHUNK: u64 = 50_000;
+                const DEADLINE_MS: f64 = 8.0;
+                let perf = web_sys::window().and_then(|w| w.performance());
+                let deadline = perf.as_ref().map(|p| p.now() + DEADLINE_MS);
+                let mut batch = e.run_batch(if deadline.is_some() {
+                    CHUNK
+                } else {
+                    100_000
+                });
+                while matches!(batch.reason, cor24_emulator::StopReason::CycleLimit) {
+                    if let (Some(p), Some(d)) = (perf.as_ref(), deadline)
+                        && p.now() >= d
+                    {
+                        break;
+                    } else if deadline.is_none() {
+                        break;
+                    }
+                    let next = e.run_batch(CHUNK);
+                    batch = cor24_emulator::BatchResult {
+                        instructions_run: batch
+                            .instructions_run
+                            .saturating_add(next.instructions_run),
+                        reason: next.reason,
+                        uart_bytes_added: batch.uart_bytes_added + next.uart_bytes_added,
+                        led_changed: batch.led_changed || next.led_changed,
+                    };
+                }
 
                 // Update display state.
                 uart_output.set(e.get_uart_output().to_string());

@@ -1,6 +1,6 @@
 number = 15
 slug = "followups-or-direction"
-status = "pending"
+status = "in-progress"
 description = """
 Open follow-up list as before. RTC bug-fix arc is now closed
 (input, battery ..."""

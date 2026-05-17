@@ -241,6 +241,10 @@ function __wbg_get_imports() {
             const ret = arg0.nextSibling;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_now_3cd905700d21a70b: function(arg0) {
+            const ret = arg0.now();
+            return ret;
+        },
         __wbg_now_81363d44c96dd239: function() {
             const ret = Date.now();
             return ret;
@@ -258,6 +262,10 @@ function __wbg_get_imports() {
         },
         __wbg_parentNode_1bd06e132b3671e5: function(arg0) {
             const ret = arg0.parentNode;
+            return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
+        },
+        __wbg_performance_ddd4e7eeef6254f3: function(arg0) {
+            const ret = arg0.performance;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
         __wbg_preventDefault_077a15ca7e97dc5a: function(arg0) {
@@ -417,18 +425,18 @@ function __wbg_get_imports() {
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 718, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 717, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__haaf58edae031e1c2);
             return ret;
         },
         __wbindgen_cast_0000000000000002: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Ref(NamedExternref("Event"))], shim_idx: 625, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
-            const ret = makeClosure(arg0, arg1, wasm_bindgen__convert__closures________invoke__h998b99bfcae769ec);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Ref(NamedExternref("Event"))], shim_idx: 624, ret: Unit, inner_ret: Some(Unit) }, mutable: false }) -> Externref`.
+            const ret = makeClosure(arg0, arg1, wasm_bindgen__convert__closures________invoke__h0f648089af79b2ce);
             return ret;
         },
         __wbindgen_cast_0000000000000003: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 695, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h23c6dbde1bebc190);
+            // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [], shim_idx: 694, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            const ret = makeMutClosure(arg0, arg1, wasm_bindgen__convert__closures_____invoke__h7e58f2d1271ace5a);
             return ret;
         },
         __wbindgen_cast_0000000000000004: function(arg0, arg1) {
@@ -452,12 +460,12 @@ function __wbg_get_imports() {
     };
 }
 
-function wasm_bindgen__convert__closures_____invoke__h23c6dbde1bebc190(arg0, arg1) {
-    wasm.wasm_bindgen__convert__closures_____invoke__h23c6dbde1bebc190(arg0, arg1);
+function wasm_bindgen__convert__closures_____invoke__h7e58f2d1271ace5a(arg0, arg1) {
+    wasm.wasm_bindgen__convert__closures_____invoke__h7e58f2d1271ace5a(arg0, arg1);
 }
 
-function wasm_bindgen__convert__closures________invoke__h998b99bfcae769ec(arg0, arg1, arg2) {
-    wasm.wasm_bindgen__convert__closures________invoke__h998b99bfcae769ec(arg0, arg1, arg2);
+function wasm_bindgen__convert__closures________invoke__h0f648089af79b2ce(arg0, arg1, arg2) {
+    wasm.wasm_bindgen__convert__closures________invoke__h0f648089af79b2ce(arg0, arg1, arg2);
 }
 
 function wasm_bindgen__convert__closures_____invoke__haaf58edae031e1c2(arg0, arg1, arg2) {
