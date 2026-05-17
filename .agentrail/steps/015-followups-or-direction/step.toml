@@ -1,10 +1,11 @@
 number = 15
 slug = "followups-or-direction"
-status = "in-progress"
+status = "completed"
 description = """
 Open follow-up list as before. RTC bug-fix arc is now closed
 (input, battery ..."""
 role = "legacy"
 context_files = []
 created_at = "2026-05-16T19:38:05"
-commits = []
+completed_at = "2026-05-17T09:57:04"
+commits = ["03da48f3dc4905563c1e4f554cf86fa2242c84d4"]
