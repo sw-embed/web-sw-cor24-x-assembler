@@ -69,6 +69,39 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
     let canvas_width = u32::from(s.width) * SCALE;
     let canvas_height = u32::from(s.height) * SCALE;
 
+    // PCB module render. Modelled on a real 0.96" two-color OLED
+    // breakout (see docs/i2c-oled.png): royal-blue PCB with rounded
+    // corners, four chrome mounting holes near the corners, a row
+    // of four pin-header pads + GND/VCC/SCL/SDA silkscreen labels
+    // along the top, and a black inset around the canvas. The
+    // canvas itself carries the live framebuffer.
+    let hole = |corner: &'static str| -> Html {
+        html! {
+            <div style={format!(
+                "position:absolute; {corner}; width:14px; height:14px; \
+                 background:radial-gradient(circle at 35% 30%, #f5f5f5, #888 65%, #2a2a2a 100%); \
+                 border-radius:50%; box-shadow:inset 0 0 2px rgba(0,0,0,0.7);"
+            )} />
+        }
+    };
+    let pin = |label: &'static str| -> Html {
+        html! {
+            <div style="display:flex; flex-direction:column; align-items:center; gap:1px;">
+                <div style="width:10px; height:10px; border-radius:50%; \
+                            background:radial-gradient(circle at 35% 30%, #f0f0f0, #999 60%, #333); \
+                            box-shadow:0 0 2px rgba(0,0,0,0.5);" />
+                <span style="font-family:Arial, sans-serif; font-size:8px; color:#ffffff; \
+                             text-shadow:0 0 1px rgba(0,0,0,0.6); letter-spacing:0.5px;">
+                    {label}
+                </span>
+            </div>
+        }
+    };
+
+    let pcb_blue = "#1565c0";
+    let pcb_blue_dark = "#0d47a1";
+    let pcb_width = canvas_width + 36; // 18px PCB margin each side
+
     html! {
         <div style="background:#11111b; padding:8px; border-radius:4px; \
                     border:1px solid #313244; display:flex; flex-direction:column; gap:6px;">
@@ -82,17 +115,37 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
                         if s.display_on { "on" } else { "off" })}
                 </span>
             </div>
-            // The "bezel" — a slim dark plastic surround that hints at
-            // the physical module without trying to look like a PCB
-            // render. The canvas itself is what carries the live state.
-            <div style="display:inline-block; padding:6px; background:#000; \
-                        border-radius:4px; border:1px solid #45475a; \
-                        box-shadow:0 0 10px rgba(116,199,236,0.08), \
-                                   inset 0 0 4px rgba(0,0,0,0.6);">
-                <canvas ref={canvas_ref}
-                        width={canvas_width.to_string()}
-                        height={canvas_height.to_string()}
-                        style="display:block; image-rendering:pixelated;" />
+            <div style={format!(
+                "position:relative; width:{pcb_width}px; \
+                 background:linear-gradient(180deg, {pcb_blue} 0%, {pcb_blue_dark} 100%); \
+                 border-radius:10px; padding:36px 18px 22px 18px; \
+                 box-shadow:0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);"
+            )}>
+                // Corner mounting holes.
+                { hole("top:6px; left:6px") }
+                { hole("top:6px; right:6px") }
+                { hole("bottom:6px; left:6px") }
+                { hole("bottom:6px; right:6px") }
+
+                // Top header row: 4 pin pads + silkscreen labels.
+                <div style="position:absolute; top:4px; left:0; right:0; \
+                            display:flex; justify-content:center; gap:14px;">
+                    { pin("GND") }
+                    { pin("VCC") }
+                    { pin("SCL") }
+                    { pin("SDA") }
+                </div>
+
+                // Black inset frame around the OLED itself.
+                <div style="background:#000; padding:4px; border-radius:3px; \
+                            border:1px solid #0a0a0a; \
+                            box-shadow:inset 0 0 6px rgba(0,0,0,0.8), \
+                                       0 0 8px rgba(116,199,236,0.06);">
+                    <canvas ref={canvas_ref}
+                            width={canvas_width.to_string()}
+                            height={canvas_height.to_string()}
+                            style="display:block; image-rendering:pixelated;" />
+                </div>
             </div>
             <div style="color:#6c7086; font-size:0.7rem;">
                 {"two-color OLED: top 16 rows yellow, rest blue"}
