@@ -593,6 +593,51 @@ fn app() -> Html {
         })
     };
 
+    let on_set_ds1307_system_time = {
+        let ds1307_handle = ds1307_handle.clone();
+        let ds1307_snapshot = ds1307_snapshot.clone();
+        let ds1307_last_seen = ds1307_last_seen.clone();
+        Callback::from(move |_: MouseEvent| {
+            // Decompose JS Date into local HH:MM:SS. Using local time
+            // rather than UTC because users intuitively expect their
+            // wall clock; the chip itself is timezone-agnostic.
+            let now = js_sys::Date::new_0();
+            let h = now.get_hours() as u8;
+            let m = now.get_minutes() as u8;
+            let s = now.get_seconds() as u8;
+
+            // Write to the device if a run is live so the running
+            // demo immediately sees the new time on its next read.
+            if let Some(h_dev) = ds1307_handle.borrow().as_ref() {
+                h_dev.set_time(h, m, s);
+                // Reset the last-seen tracker to None so the trap
+                // fires exactly once for this synthetic write — and
+                // the persisted state is updated even if the user
+                // hasn't enabled battery yet (a follow-up enable
+                // then has something meaningful to boot from).
+                *ds1307_last_seen.borrow_mut() = None;
+            }
+
+            // Always persist (regardless of battery toggle) so that
+            // flipping battery on after a system-time press boots
+            // the next run from this value. The brief's snapshot
+            // path uses effective_now() at attach, so this writes
+            // the new set_value with `set_at_ms = Date.now()`.
+            battery::save(battery::Persisted {
+                set_value: battery::SetValue { h, m, s },
+                set_at_ms: now.get_time(),
+            });
+
+            // Reflect immediately in the panel.
+            ds1307_snapshot.set(Some(Ds1307Snapshot {
+                address: 0x68,
+                hour: h,
+                minute: m,
+                second: s,
+            }));
+        })
+    };
+
     let on_poke_echo = {
         let echo_handle = echo_handle.clone();
         let echo_snapshot = echo_snapshot.clone();
@@ -789,7 +834,8 @@ fn app() -> Html {
                                   ds1307_battery_enabled={*ds1307_battery_enabled}
                                   on_set_tmp101_temperature={on_set_tmp101_temperature}
                                   on_poke_test_device={on_poke_test_device}
-                                  on_toggle_ds1307_battery={on_toggle_ds1307_battery} />
+                                  on_toggle_ds1307_battery={on_toggle_ds1307_battery}
+                                  on_set_ds1307_system_time={on_set_ds1307_system_time} />
 
                         <SpiPanel bus={*spi_bus_snapshot}
                                   tmp125={*tmp125_snapshot}

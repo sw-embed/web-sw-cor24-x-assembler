@@ -66,6 +66,8 @@ pub struct I2cPanelProps {
     pub on_poke_test_device: Callback<u8>,
     /// Fires when the user flips the battery radio on/off.
     pub on_toggle_ds1307_battery: Callback<bool>,
+    /// Fires when the user clicks "Set to system time" on the RTC card.
+    pub on_set_ds1307_system_time: Callback<MouseEvent>,
 }
 
 #[function_component(I2cPanel)]
@@ -133,7 +135,8 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
             if let Some(snap) = props.ds1307 {
                 <Ds1307Panel snapshot={snap}
                              battery_enabled={props.ds1307_battery_enabled}
-                             on_toggle_battery={props.on_toggle_ds1307_battery.clone()} />
+                             on_toggle_battery={props.on_toggle_ds1307_battery.clone()}
+                             on_set_system_time={props.on_set_ds1307_system_time.clone()} />
             }
         </div>
     }
