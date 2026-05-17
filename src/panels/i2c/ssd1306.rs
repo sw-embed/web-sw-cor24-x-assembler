@@ -153,7 +153,7 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
                 </div>
             </div>
             <div style="color:#6c7086; font-size:0.7rem;">
-                {"two-color OLED: top 16 rows yellow, rest blue"}
+                {"two-color OLED: top 16 pixel rows (\u{00bc} of display) yellow, bottom 48 blue"}
             </div>
         </div>
     }
