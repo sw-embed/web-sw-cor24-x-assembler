@@ -8,6 +8,7 @@
 use yew::prelude::*;
 
 use super::rtc::{Ds1307Panel, Ds1307Snapshot};
+use super::ssd1306::{Ssd1306Panel, Ssd1306Snapshot};
 use super::test_device::{TestDevicePanel, TestDeviceSnapshot};
 use super::tmp101::{Tmp101Panel, Tmp101Snapshot};
 
@@ -54,6 +55,9 @@ pub struct I2cPanelProps {
     /// `None` if the DS1307 RTC isn't attached this run.
     #[prop_or_default]
     pub ds1307: Option<Ds1307Snapshot>,
+    /// `None` if the SSD1306 OLED isn't attached this run.
+    #[prop_or_default]
+    pub ssd1306: Option<Ssd1306Snapshot>,
     /// Whether the "Battery on" toggle is currently selected.
     /// Ignored when `ds1307` is `None`.
     #[prop_or_default]
@@ -77,6 +81,7 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
     if props.tmp101.is_none()
         && props.test_device.is_none()
         && props.ds1307.is_none()
+        && props.ssd1306.is_none()
         && props.bus.attached == 0
     {
         return html! {};
@@ -137,6 +142,9 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
                              battery_enabled={props.ds1307_battery_enabled}
                              on_toggle_battery={props.on_toggle_ds1307_battery.clone()}
                              on_set_system_time={props.on_set_ds1307_system_time.clone()} />
+            }
+            if let Some(snap) = &props.ssd1306 {
+                <Ssd1306Panel snapshot={snap.clone()} />
             }
         </div>
     }

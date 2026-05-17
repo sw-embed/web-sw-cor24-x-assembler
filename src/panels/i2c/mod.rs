@@ -16,10 +16,12 @@
 
 pub mod container;
 pub mod rtc;
+pub mod ssd1306;
 pub mod test_device;
 pub mod tmp101;
 
 pub use container::{BusSnapshot, I2cPanel};
 pub use rtc::Ds1307Snapshot;
+pub use ssd1306::{FRAMEBUFFER_LEN as SSD1306_FRAMEBUFFER_LEN, Ssd1306Snapshot};
 pub use test_device::TestDeviceSnapshot;
 pub use tmp101::Tmp101Snapshot;

@@ -19,7 +19,7 @@ use std::rc::Rc;
 use cor24_assembler::AssembledLine;
 use cor24_emulator::EmulatorCore;
 use cor24_emulator::peripherals::i2c::{
-    Add1Device, Ds1307Device, Ds1307HandleExt, I2cDevice, I2cHandle, Tmp101Device,
+    Add1Device, Ds1307Device, Ds1307HandleExt, I2cDevice, I2cHandle, Ssd1306Device, Tmp101Device,
     Tmp101HandleExt, Tmp101Resolution,
 };
 use cor24_emulator::peripherals::spi::{EchoDevice, SpiHandle, Tmp125Device, Tmp125HandleExt};
@@ -30,7 +30,8 @@ use yew::prelude::*;
 use editor::Editor;
 use panels::{
     BusSnapshot, Ds1307Snapshot, EchoSnapshot, I2cPanel, LedPanel, RegistersPanel, SpiBusSnapshot,
-    SpiPanel, SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot, Tmp125Snapshot, UartPanel,
+    SpiPanel, Ssd1306Snapshot, SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot, Tmp125Snapshot,
+    UartPanel,
 };
 
 #[function_component(App)]
@@ -72,10 +73,12 @@ fn app() -> Html {
     let tmp101_handle: Rc<RefCell<Option<I2cHandle<Tmp101Device>>>> = use_mut_ref(|| None);
     let test_device_handle: Rc<RefCell<Option<I2cHandle<Add1Device>>>> = use_mut_ref(|| None);
     let ds1307_handle: Rc<RefCell<Option<I2cHandle<Ds1307Device>>>> = use_mut_ref(|| None);
+    let ssd1306_handle: Rc<RefCell<Option<I2cHandle<Ssd1306Device>>>> = use_mut_ref(|| None);
     let bus_snapshot = use_state(BusSnapshot::default);
     let tmp101_snapshot = use_state(|| None::<Tmp101Snapshot>);
     let test_device_snapshot = use_state(|| None::<TestDeviceSnapshot>);
     let ds1307_snapshot = use_state(|| None::<Ds1307Snapshot>);
+    let ssd1306_snapshot = use_state(|| None::<Ssd1306Snapshot>);
     // Battery toggle is feature-shaped: lives in the web layer +
     // localStorage; never crosses the emulator boundary.
     let ds1307_battery_enabled = use_state(battery::load_enabled);
@@ -127,10 +130,12 @@ fn app() -> Html {
         let tmp101_handle = tmp101_handle.clone();
         let test_device_handle = test_device_handle.clone();
         let ds1307_handle = ds1307_handle.clone();
+        let ssd1306_handle = ssd1306_handle.clone();
         let bus_snapshot = bus_snapshot.clone();
         let tmp101_snapshot = tmp101_snapshot.clone();
         let test_device_snapshot = test_device_snapshot.clone();
         let ds1307_snapshot = ds1307_snapshot.clone();
+        let ssd1306_snapshot = ssd1306_snapshot.clone();
         let ds1307_battery_enabled = ds1307_battery_enabled.clone();
         let ds1307_last_seen = ds1307_last_seen.clone();
         let tmp125_handle = tmp125_handle.clone();
@@ -176,7 +181,7 @@ fn app() -> Html {
             // stay hidden -- so picking 'I2C TMP101 Read' shows only
             // the TMP101 card, not the unrelated test-device row
             // or the SPI bus.
-            let (h_tmp101, h_test, h_ds1307, h_tmp125, h_echo) = {
+            let (h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo) = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 match &bytes {
@@ -284,6 +289,19 @@ fn app() -> Html {
                 } else {
                     None
                 };
+                let h_ssd1306 = if config.attach_ssd1306 {
+                    // SSD1306 default address; demos pair with the
+                    // DS1307 (which is at 0x68) on the I2C OLED RTC
+                    // Clock demo, so the two slaves coexist.
+                    let h = e
+                        .attach_i2c_device(Ssd1306Device::new(
+                            cor24_emulator::peripherals::i2c::devices::ssd1306::DEFAULT_ADDRESS,
+                        ))
+                        .expect("SSD1306 default address 0x3C free on a fresh bus");
+                    Some(h)
+                } else {
+                    None
+                };
                 // SPI is single-slave today, so TMP125 and the
                 // echo test device are mutually exclusive.
                 let h_tmp125 = if config.attach_tmp125 {
@@ -303,7 +321,7 @@ fn app() -> Html {
                 };
 
                 e.resume();
-                (h_tmp101, h_test, h_ds1307, h_tmp125, h_echo)
+                (h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo)
             };
 
             // Seed each device-card snapshot if its device was
@@ -333,6 +351,12 @@ fn app() -> Html {
                 *ds1307_last_seen.borrow_mut() = None;
             }
             *ds1307_handle.borrow_mut() = h_ds1307;
+            if let Some(h) = &h_ssd1306 {
+                ssd1306_snapshot.set(Some(read_ssd1306_snapshot(h)));
+            } else {
+                ssd1306_snapshot.set(None);
+            }
+            *ssd1306_handle.borrow_mut() = h_ssd1306;
             if let Some(h) = &h_tmp125 {
                 tmp125_snapshot.set(Some(read_tmp125_snapshot(h)));
             } else {
@@ -380,10 +404,12 @@ fn app() -> Html {
             let tmp101_handle = tmp101_handle.clone();
             let test_device_handle = test_device_handle.clone();
             let ds1307_handle = ds1307_handle.clone();
+            let ssd1306_handle = ssd1306_handle.clone();
             let bus_snapshot = bus_snapshot.clone();
             let tmp101_snapshot = tmp101_snapshot.clone();
             let test_device_snapshot = test_device_snapshot.clone();
             let ds1307_snapshot = ds1307_snapshot.clone();
+            let ssd1306_snapshot = ssd1306_snapshot.clone();
             let ds1307_battery_enabled = ds1307_battery_enabled.clone();
             let ds1307_last_seen = ds1307_last_seen.clone();
             let tmp125_handle = tmp125_handle.clone();
@@ -406,15 +432,50 @@ fn app() -> Html {
                     }
                 }
 
-                // Instructions per 16 ms tick. 100k is the sweet spot for
-                // the current demo mix: tight read-print loops (no idle
-                // delay) stay snappy and the UI thread keeps up with
-                // slider events. The earlier 1M tuning was needed for
-                // the now-removed tmp101.lgo (which spun a 16M-iteration
-                // delay between reads); with all bundled demos being
-                // hand-tuned .s, that budget pegged CPU and made the
-                // sliders unresponsive.
-                let batch = e.run_batch(100_000);
+                // Adaptive per-tick budget. The prior static 100k/tick
+                // was right for the bundled demos but wrong for any
+                // user-pasted source with a non-trivial idle loop
+                // (the upstream tmp101.lgo's `t = -1; while (t--){}`
+                // delay was the example that motivated the earlier
+                // 1M tuning bump, which then made tight loops jank
+                // -- two static values and neither worked everywhere).
+                //
+                // Instead: run 50k-instruction chunks back-to-back,
+                // stop when ~8 ms of wall-clock has elapsed or the
+                // emulator halts/faults. So tight loops complete
+                // hundreds of thousands of instructions a tick while
+                // slow ones still pump enough to make visible
+                // progress, and the UI thread stays responsive
+                // because no tick blocks for longer than the
+                // deadline. Falls back to a single 100k-instruction
+                // chunk if Performance is unavailable.
+                const CHUNK: u64 = 50_000;
+                const DEADLINE_MS: f64 = 8.0;
+                let perf = web_sys::window().and_then(|w| w.performance());
+                let deadline = perf.as_ref().map(|p| p.now() + DEADLINE_MS);
+                let mut batch = e.run_batch(if deadline.is_some() {
+                    CHUNK
+                } else {
+                    100_000
+                });
+                while matches!(batch.reason, cor24_emulator::StopReason::CycleLimit) {
+                    if let (Some(p), Some(d)) = (perf.as_ref(), deadline)
+                        && p.now() >= d
+                    {
+                        break;
+                    } else if deadline.is_none() {
+                        break;
+                    }
+                    let next = e.run_batch(CHUNK);
+                    batch = cor24_emulator::BatchResult {
+                        instructions_run: batch
+                            .instructions_run
+                            .saturating_add(next.instructions_run),
+                        reason: next.reason,
+                        uart_bytes_added: batch.uart_bytes_added + next.uart_bytes_added,
+                        led_changed: batch.led_changed || next.led_changed,
+                    };
+                }
 
                 // Update display state.
                 uart_output.set(e.get_uart_output().to_string());
@@ -442,6 +503,9 @@ fn app() -> Html {
                 }
                 if let Some(h) = test_device_handle.borrow().as_ref() {
                     test_device_snapshot.set(Some(read_test_device_snapshot(h)));
+                }
+                if let Some(h) = ssd1306_handle.borrow().as_ref() {
+                    ssd1306_snapshot.set(Some(read_ssd1306_snapshot(h)));
                 }
                 if let Some(h) = ds1307_handle.borrow().as_ref() {
                     let snap = read_ds1307_snapshot(h);
@@ -692,6 +756,7 @@ fn app() -> Html {
         let echo_snapshot = echo_snapshot.clone();
         let ds1307_snapshot = ds1307_snapshot.clone();
         let ds1307_battery_enabled = ds1307_battery_enabled.clone();
+        let ssd1306_snapshot = ssd1306_snapshot.clone();
         Callback::from(move |e: Event| {
             let Some(select) = e
                 .target()
@@ -747,6 +812,11 @@ fn app() -> Html {
                     )));
                 } else {
                     ds1307_snapshot.set(None);
+                }
+                if demo.config.attach_ssd1306 {
+                    ssd1306_snapshot.set(Some(default_or_keep_ssd1306(&ssd1306_snapshot)));
+                } else {
+                    ssd1306_snapshot.set(None);
                 }
                 assemble_error.set(None);
                 listing.set(Vec::new());
@@ -858,6 +928,7 @@ fn app() -> Html {
                                   test_device={*test_device_snapshot}
                                   ds1307={*ds1307_snapshot}
                                   ds1307_battery_enabled={*ds1307_battery_enabled}
+                                  ssd1306={(*ssd1306_snapshot).clone()}
                                   on_set_tmp101_temperature={on_set_tmp101_temperature}
                                   on_poke_test_device={on_poke_test_device}
                                   on_toggle_ds1307_battery={on_toggle_ds1307_battery}
@@ -983,6 +1054,22 @@ fn default_or_keep_echo(state: &UseStateHandle<Option<EchoSnapshot>>) -> EchoSna
     (**state).unwrap_or(EchoSnapshot { buffer: 0 })
 }
 
+/// Synthesize an empty SSD1306 snapshot (display off, all pixels
+/// cleared) pre-Run so the panel shows the dark module right away
+/// when the user picks an OLED demo.
+fn default_or_keep_ssd1306(state: &UseStateHandle<Option<Ssd1306Snapshot>>) -> Ssd1306Snapshot {
+    if let Some(snap) = state.as_ref() {
+        return snap.clone();
+    }
+    Ssd1306Snapshot {
+        address: cor24_emulator::peripherals::i2c::devices::ssd1306::DEFAULT_ADDRESS,
+        width: 128,
+        height: 64,
+        display_on: false,
+        framebuffer: vec![0u8; panels::SSD1306_FRAMEBUFFER_LEN],
+    }
+}
+
 /// Synthesize a DS1307 snapshot pre-Run. If the battery toggle is on
 /// and there's persisted state, the synthesized time is
 /// `(set_value + elapsed) % 86400` so the user sees the time the
@@ -1035,6 +1122,17 @@ fn read_ds1307_snapshot(handle: &I2cHandle<Ds1307Device>) -> Ds1307Snapshot {
         minute: handle.minute(),
         second: handle.second(),
     }
+}
+
+/// Snapshot the SSD1306 OLED's framebuffer + display-on bit.
+fn read_ssd1306_snapshot(handle: &I2cHandle<Ssd1306Device>) -> Ssd1306Snapshot {
+    handle.with(|d| Ssd1306Snapshot {
+        address: d.address(),
+        width: d.width(),
+        height: d.height(),
+        display_on: d.display_on(),
+        framebuffer: d.framebuffer().to_vec(),
+    })
 }
 
 /// Snapshot the TMP125's UI-visible state through its SPI handle.
