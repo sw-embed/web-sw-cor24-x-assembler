@@ -39,6 +39,10 @@ pub struct DemoConfig {
     /// I2C test device: this is the SPI bus's "exercise every path"
     /// chip going forward.
     pub attach_test_spi: bool,
+    /// DS1307 RTC at I2C 0x68. Battery-backed persistence happens
+    /// in `main.rs` (localStorage); from the device's POV this is
+    /// just an attachment toggle.
+    pub attach_rtc: bool,
 }
 
 impl DemoConfig {
@@ -47,6 +51,7 @@ impl DemoConfig {
         attach_test_i2c: false,
         attach_tmp125: false,
         attach_test_spi: false,
+        attach_rtc: false,
     };
     pub const TMP101_ONLY: Self = Self {
         attach_tmp101: true,
@@ -62,6 +67,10 @@ impl DemoConfig {
     };
     pub const TEST_SPI_ONLY: Self = Self {
         attach_test_spi: true,
+        ..Self::NONE
+    };
+    pub const RTC_ONLY: Self = Self {
+        attach_rtc: true,
         ..Self::NONE
     };
 }
@@ -84,6 +93,8 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Countdown", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s"), config: DemoConfig::NONE },
     Demo { name: "Echo", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s"), config: DemoConfig::NONE },
     Demo { name: "Fibonacci", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s"), config: DemoConfig::NONE },
+    Demo { name: "I2C RTC Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_read.s"), config: DemoConfig::RTC_ONLY },
+    Demo { name: "I2C RTC Set", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_set.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C TMP101 Read", source: include_str!("examples/tmp101_read.s"), config: DemoConfig::TMP101_ONLY },
     Demo { name: "I2C Test Device Ping", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_add1_ping.s"), config: DemoConfig::TEST_I2C_ONLY },
     Demo { name: "Literals", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/literals.s"), config: DemoConfig::NONE },

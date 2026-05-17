@@ -1,6 +1,6 @@
 number = 12
 slug = "i2c-rtc-ds1307"
-status = "pending"
+status = "in-progress"
 description = """
 Implement an I2C RTC device + demo following the recommendations in
 sw-cor24-..."""

@@ -7,6 +7,7 @@
 //! run loop while keeping the UI responsive.
 
 mod assembler;
+mod battery;
 mod demos;
 mod editor;
 mod highlight;
@@ -18,7 +19,8 @@ use std::rc::Rc;
 use cor24_assembler::AssembledLine;
 use cor24_emulator::EmulatorCore;
 use cor24_emulator::peripherals::i2c::{
-    Add1Device, I2cDevice, I2cHandle, Tmp101Device, Tmp101HandleExt, Tmp101Resolution,
+    Add1Device, Ds1307Device, Ds1307HandleExt, I2cDevice, I2cHandle, Tmp101Device,
+    Tmp101HandleExt, Tmp101Resolution,
 };
 use cor24_emulator::peripherals::spi::{EchoDevice, SpiHandle, Tmp125Device, Tmp125HandleExt};
 use wasm_bindgen::JsCast;
@@ -27,8 +29,8 @@ use yew::prelude::*;
 
 use editor::Editor;
 use panels::{
-    BusSnapshot, EchoSnapshot, I2cPanel, LedPanel, RegistersPanel, SpiBusSnapshot, SpiPanel,
-    SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot, Tmp125Snapshot, UartPanel,
+    BusSnapshot, Ds1307Snapshot, EchoSnapshot, I2cPanel, LedPanel, RegistersPanel, SpiBusSnapshot,
+    SpiPanel, SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot, Tmp125Snapshot, UartPanel,
 };
 
 #[function_component(App)]
@@ -69,9 +71,18 @@ fn app() -> Html {
     // that owns it.
     let tmp101_handle: Rc<RefCell<Option<I2cHandle<Tmp101Device>>>> = use_mut_ref(|| None);
     let test_device_handle: Rc<RefCell<Option<I2cHandle<Add1Device>>>> = use_mut_ref(|| None);
+    let ds1307_handle: Rc<RefCell<Option<I2cHandle<Ds1307Device>>>> = use_mut_ref(|| None);
     let bus_snapshot = use_state(BusSnapshot::default);
     let tmp101_snapshot = use_state(|| None::<Tmp101Snapshot>);
     let test_device_snapshot = use_state(|| None::<TestDeviceSnapshot>);
+    let ds1307_snapshot = use_state(|| None::<Ds1307Snapshot>);
+    // Battery toggle is feature-shaped: lives in the web layer +
+    // localStorage; never crosses the emulator boundary.
+    let ds1307_battery_enabled = use_state(battery::load_enabled);
+    // Last (h,m,s) tuple this tick saw — used by THE SYNCHRONIZATION
+    // TRAP to detect i2c-write completion and persist to
+    // localStorage as soon as it lands.
+    let ds1307_last_seen: Rc<RefCell<Option<(u8, u8, u8)>>> = use_mut_ref(|| None);
 
     // SPI side: single-slave; either TMP125 or EchoDevice is
     // attached per the demo's config.
@@ -115,9 +126,13 @@ fn app() -> Html {
         let switch_pressed = switch_pressed.clone();
         let tmp101_handle = tmp101_handle.clone();
         let test_device_handle = test_device_handle.clone();
+        let ds1307_handle = ds1307_handle.clone();
         let bus_snapshot = bus_snapshot.clone();
         let tmp101_snapshot = tmp101_snapshot.clone();
         let test_device_snapshot = test_device_snapshot.clone();
+        let ds1307_snapshot = ds1307_snapshot.clone();
+        let ds1307_battery_enabled = ds1307_battery_enabled.clone();
+        let ds1307_last_seen = ds1307_last_seen.clone();
         let tmp125_handle = tmp125_handle.clone();
         let echo_handle = echo_handle.clone();
         let spi_bus_snapshot = spi_bus_snapshot.clone();
@@ -161,7 +176,7 @@ fn app() -> Html {
             // stay hidden -- so picking 'I2C TMP101 Read' shows only
             // the TMP101 card, not the unrelated test-device row
             // or the SPI bus.
-            let (h_tmp101, h_test, h_tmp125, h_echo) = {
+            let (h_tmp101, h_test, h_ds1307, h_tmp125, h_echo) = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 match &bytes {
@@ -216,6 +231,33 @@ fn app() -> Html {
                 } else {
                     None
                 };
+                // DS1307 attach path matrix (per
+                // tools/briefs/dwxas-battery-backed-rtc.md):
+                //   battery off              -> all-zero regs
+                //   battery on, no persisted -> all-zero regs
+                //   battery on, persisted    -> effective time-of-day
+                let h_ds1307 = if config.attach_rtc {
+                    let device = if *ds1307_battery_enabled
+                        && let Some(p) = battery::load()
+                    {
+                        let eff = battery::effective_now(p, js_sys::Date::now());
+                        let mut regs = [0u8; 8];
+                        regs[0] = int_to_bcd(eff.s);
+                        regs[1] = int_to_bcd(eff.m);
+                        regs[2] = int_to_bcd(eff.h);
+                        // date fields stay zero (out of scope per
+                        // brief: persistence is time-of-day only).
+                        Ds1307Device::with_initial_registers(0x68, regs)
+                    } else {
+                        Ds1307Device::new(0x68)
+                    };
+                    let h = e
+                        .attach_i2c_device(device)
+                        .expect("DS1307 default address 0x68 free on a fresh bus");
+                    Some(h)
+                } else {
+                    None
+                };
                 // SPI is single-slave today, so TMP125 and the
                 // echo test device are mutually exclusive.
                 let h_tmp125 = if config.attach_tmp125 {
@@ -235,7 +277,7 @@ fn app() -> Html {
                 };
 
                 e.resume();
-                (h_tmp101, h_test, h_tmp125, h_echo)
+                (h_tmp101, h_test, h_ds1307, h_tmp125, h_echo)
             };
 
             // Seed each device-card snapshot if its device was
@@ -253,6 +295,18 @@ fn app() -> Html {
                 test_device_snapshot.set(None);
             }
             *test_device_handle.borrow_mut() = h_test;
+            // RTC: seed snapshot + reset the synchronization-trap
+            // last-seen tracker so the very first detected write
+            // after Run reaches localStorage.
+            if let Some(h) = &h_ds1307 {
+                let snap = read_ds1307_snapshot(h);
+                ds1307_snapshot.set(Some(snap));
+                *ds1307_last_seen.borrow_mut() = Some((snap.hour, snap.minute, snap.second));
+            } else {
+                ds1307_snapshot.set(None);
+                *ds1307_last_seen.borrow_mut() = None;
+            }
+            *ds1307_handle.borrow_mut() = h_ds1307;
             if let Some(h) = &h_tmp125 {
                 tmp125_snapshot.set(Some(read_tmp125_snapshot(h)));
             } else {
@@ -299,9 +353,13 @@ fn app() -> Html {
             let interval_handle2 = interval_handle.clone();
             let tmp101_handle = tmp101_handle.clone();
             let test_device_handle = test_device_handle.clone();
+            let ds1307_handle = ds1307_handle.clone();
             let bus_snapshot = bus_snapshot.clone();
             let tmp101_snapshot = tmp101_snapshot.clone();
             let test_device_snapshot = test_device_snapshot.clone();
+            let ds1307_snapshot = ds1307_snapshot.clone();
+            let ds1307_battery_enabled = ds1307_battery_enabled.clone();
+            let ds1307_last_seen = ds1307_last_seen.clone();
             let tmp125_handle = tmp125_handle.clone();
             let echo_handle = echo_handle.clone();
             let spi_bus_snapshot = spi_bus_snapshot.clone();
@@ -358,6 +416,36 @@ fn app() -> Html {
                 }
                 if let Some(h) = test_device_handle.borrow().as_ref() {
                     test_device_snapshot.set(Some(read_test_device_snapshot(h)));
+                }
+                if let Some(h) = ds1307_handle.borrow().as_ref() {
+                    let snap = read_ds1307_snapshot(h);
+                    ds1307_snapshot.set(Some(snap));
+                    // THE SYNCHRONIZATION TRAP (per brief): detect
+                    // any change to the (h,m,s) register tuple this
+                    // tick and persist it to localStorage with the
+                    // current wall-clock time. Coalesces naturally
+                    // -- one setItem per tick at most. Only fires
+                    // when the battery toggle is on so toggling off
+                    // is "throw away future writes" rather than
+                    // "throw away history".
+                    let now_tuple = (snap.hour, snap.minute, snap.second);
+                    let mut last = ds1307_last_seen.borrow_mut();
+                    if *last != Some(now_tuple) {
+                        if *ds1307_battery_enabled && last.is_some() {
+                            // last.is_some() guard means we don't
+                            // persist the boot-time read; only real
+                            // i2c-write-completion crossings.
+                            battery::save(battery::Persisted {
+                                set_value: battery::SetValue {
+                                    h: snap.hour,
+                                    m: snap.minute,
+                                    s: snap.second,
+                                },
+                                set_at_ms: js_sys::Date::now(),
+                            });
+                        }
+                        *last = Some(now_tuple);
+                    }
                 }
 
                 // Update SPI bus header + TMP125 snapshot.
@@ -497,6 +585,14 @@ fn app() -> Html {
         })
     };
 
+    let on_toggle_ds1307_battery = {
+        let ds1307_battery_enabled = ds1307_battery_enabled.clone();
+        Callback::from(move |enabled: bool| {
+            ds1307_battery_enabled.set(enabled);
+            battery::save_enabled(enabled);
+        })
+    };
+
     let on_poke_echo = {
         let echo_handle = echo_handle.clone();
         let echo_snapshot = echo_snapshot.clone();
@@ -523,6 +619,8 @@ fn app() -> Html {
         let test_device_snapshot = test_device_snapshot.clone();
         let tmp125_snapshot = tmp125_snapshot.clone();
         let echo_snapshot = echo_snapshot.clone();
+        let ds1307_snapshot = ds1307_snapshot.clone();
+        let ds1307_battery_enabled = ds1307_battery_enabled.clone();
         Callback::from(move |e: Event| {
             let Some(select) = e
                 .target()
@@ -570,6 +668,14 @@ fn app() -> Html {
                     echo_snapshot.set(Some(default_or_keep_echo(&echo_snapshot)));
                 } else {
                     echo_snapshot.set(None);
+                }
+                if demo.config.attach_rtc {
+                    ds1307_snapshot.set(Some(default_or_keep_ds1307(
+                        &ds1307_snapshot,
+                        *ds1307_battery_enabled,
+                    )));
+                } else {
+                    ds1307_snapshot.set(None);
                 }
                 assemble_error.set(None);
                 listing.set(Vec::new());
@@ -679,8 +785,11 @@ fn app() -> Html {
                         <I2cPanel bus={*bus_snapshot}
                                   tmp101={*tmp101_snapshot}
                                   test_device={*test_device_snapshot}
+                                  ds1307={*ds1307_snapshot}
+                                  ds1307_battery_enabled={*ds1307_battery_enabled}
                                   on_set_tmp101_temperature={on_set_tmp101_temperature}
-                                  on_poke_test_device={on_poke_test_device} />
+                                  on_poke_test_device={on_poke_test_device}
+                                  on_toggle_ds1307_battery={on_toggle_ds1307_battery} />
 
                         <SpiPanel bus={*spi_bus_snapshot}
                                   tmp125={*tmp125_snapshot}
@@ -802,12 +911,58 @@ fn default_or_keep_echo(state: &UseStateHandle<Option<EchoSnapshot>>) -> EchoSna
     (**state).unwrap_or(EchoSnapshot { buffer: 0 })
 }
 
+/// Synthesize a DS1307 snapshot pre-Run. If the battery toggle is on
+/// and there's persisted state, the synthesized time is
+/// `(set_value + elapsed) % 86400` so the user sees the time the
+/// device will boot at *before* hitting Run. Otherwise 00:00:00.
+fn default_or_keep_ds1307(
+    state: &UseStateHandle<Option<Ds1307Snapshot>>,
+    battery_enabled: bool,
+) -> Ds1307Snapshot {
+    if let Some(snap) = **state {
+        return snap;
+    }
+    if battery_enabled
+        && let Some(p) = battery::load()
+    {
+        let eff = battery::effective_now(p, js_sys::Date::now());
+        return Ds1307Snapshot {
+            address: 0x68,
+            hour: eff.h,
+            minute: eff.m,
+            second: eff.s,
+        };
+    }
+    Ds1307Snapshot {
+        address: 0x68,
+        hour: 0,
+        minute: 0,
+        second: 0,
+    }
+}
+
+/// Integer (0..=99) to BCD byte. Used by the attach path when the
+/// battery toggle seeds the DS1307 from localStorage.
+fn int_to_bcd(n: u8) -> u8 {
+    ((n / 10) << 4) | (n % 10)
+}
+
 /// Snapshot the I2C test slave's UI-visible state.
 fn read_test_device_snapshot(handle: &I2cHandle<Add1Device>) -> TestDeviceSnapshot {
     handle.with(|d| TestDeviceSnapshot {
         address: d.address(),
         last_byte: d.peek(),
     })
+}
+
+/// Snapshot the DS1307 RTC's UI-visible state (binary HH:MM:SS).
+fn read_ds1307_snapshot(handle: &I2cHandle<Ds1307Device>) -> Ds1307Snapshot {
+    Ds1307Snapshot {
+        address: handle.address(),
+        hour: handle.hour(),
+        minute: handle.minute(),
+        second: handle.second(),
+    }
 }
 
 /// Snapshot the TMP125's UI-visible state through its SPI handle.
