@@ -1,6 +1,6 @@
 number = 14
 slug = "followups-or-direction"
-status = "pending"
+status = "in-progress"
 description = """
 RTC bug-fix cycle done. Open follow-ups (same seed list as before):
 
