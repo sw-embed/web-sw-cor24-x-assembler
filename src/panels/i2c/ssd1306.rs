@@ -19,9 +19,11 @@ const PAGES: usize = 8;
 const COLS: usize = 128;
 pub const FRAMEBUFFER_LEN: usize = PAGES * COLS;
 
-/// 3× scale for the rendered canvas — 128×64 → 384×192, comfortable
-/// to read at a normal browser zoom.
-const SCALE: u32 = 3;
+/// 1.5× scale for the rendered canvas — 128×64 → 192×96. The
+/// physical display this simulates is 0.96″, so a tight render is
+/// faithful to the real-world size. (Earlier draft was 3× = 384×192
+/// which exaggerated the display in the I/O column.)
+const SCALE: f64 = 1.5;
 
 /// Two-color hardware band: rows < THIS are rendered in the yellow
 /// colour; the rest are blue. Standard 16-pixel yellow band.
@@ -66,32 +68,35 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
     }
 
     let s = &props.snapshot;
-    let canvas_width = u32::from(s.width) * SCALE;
-    let canvas_height = u32::from(s.height) * SCALE;
+    let canvas_width = (f64::from(s.width) * SCALE).round() as u32;
+    let canvas_height = (f64::from(s.height) * SCALE).round() as u32;
 
     // PCB module render. Modelled on a real 0.96" two-color OLED
     // breakout (see docs/i2c-oled.png): royal-blue PCB with rounded
     // corners, four chrome mounting holes near the corners, a row
     // of four pin-header pads + GND/VCC/SCL/SDA silkscreen labels
     // along the top, and a black inset around the canvas. The
-    // canvas itself carries the live framebuffer.
+    // canvas itself carries the live framebuffer. Bezel dimensions
+    // are halved versus the original 3× layout to match the 1.5×
+    // canvas scale and stay proportional to the real-world 0.96"
+    // module footprint.
     let hole = |corner: &'static str| -> Html {
         html! {
             <div style={format!(
-                "position:absolute; {corner}; width:14px; height:14px; \
+                "position:absolute; {corner}; width:8px; height:8px; \
                  background:radial-gradient(circle at 35% 30%, #f5f5f5, #888 65%, #2a2a2a 100%); \
-                 border-radius:50%; box-shadow:inset 0 0 2px rgba(0,0,0,0.7);"
+                 border-radius:50%; box-shadow:inset 0 0 1px rgba(0,0,0,0.7);"
             )} />
         }
     };
     let pin = |label: &'static str| -> Html {
         html! {
-            <div style="display:flex; flex-direction:column; align-items:center; gap:1px;">
-                <div style="width:10px; height:10px; border-radius:50%; \
+            <div style="display:flex; flex-direction:column; align-items:center; gap:0px;">
+                <div style="width:6px; height:6px; border-radius:50%; \
                             background:radial-gradient(circle at 35% 30%, #f0f0f0, #999 60%, #333); \
-                            box-shadow:0 0 2px rgba(0,0,0,0.5);" />
-                <span style="font-family:Arial, sans-serif; font-size:8px; color:#ffffff; \
-                             text-shadow:0 0 1px rgba(0,0,0,0.6); letter-spacing:0.5px;">
+                            box-shadow:0 0 1px rgba(0,0,0,0.5);" />
+                <span style="font-family:Arial, sans-serif; font-size:7px; color:#ffffff; \
+                             text-shadow:0 0 1px rgba(0,0,0,0.6); letter-spacing:0.3px;">
                     {label}
                 </span>
             </div>
@@ -100,7 +105,7 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
 
     let pcb_blue = "#1565c0";
     let pcb_blue_dark = "#0d47a1";
-    let pcb_width = canvas_width + 36; // 18px PCB margin each side
+    let pcb_width = canvas_width + 20; // 10px PCB margin each side
 
     html! {
         <div style="background:#11111b; padding:8px; border-radius:4px; \
@@ -118,18 +123,18 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
             <div style={format!(
                 "position:relative; width:{pcb_width}px; \
                  background:linear-gradient(180deg, {pcb_blue} 0%, {pcb_blue_dark} 100%); \
-                 border-radius:10px; padding:36px 18px 22px 18px; \
-                 box-shadow:0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);"
+                 border-radius:6px; padding:22px 10px 12px 10px; \
+                 box-shadow:0 1px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);"
             )}>
                 // Corner mounting holes.
-                { hole("top:6px; left:6px") }
-                { hole("top:6px; right:6px") }
-                { hole("bottom:6px; left:6px") }
-                { hole("bottom:6px; right:6px") }
+                { hole("top:3px; left:3px") }
+                { hole("top:3px; right:3px") }
+                { hole("bottom:3px; left:3px") }
+                { hole("bottom:3px; right:3px") }
 
                 // Top header row: 4 pin pads + silkscreen labels.
-                <div style="position:absolute; top:4px; left:0; right:0; \
-                            display:flex; justify-content:center; gap:14px;">
+                <div style="position:absolute; top:2px; left:0; right:0; \
+                            display:flex; justify-content:center; gap:7px;">
                     { pin("GND") }
                     { pin("VCC") }
                     { pin("SCL") }
@@ -137,10 +142,10 @@ pub fn ssd1306_panel(props: &Ssd1306PanelProps) -> Html {
                 </div>
 
                 // Black inset frame around the OLED itself.
-                <div style="background:#000; padding:4px; border-radius:3px; \
+                <div style="background:#000; padding:2px; border-radius:2px; \
                             border:1px solid #0a0a0a; \
-                            box-shadow:inset 0 0 6px rgba(0,0,0,0.8), \
-                                       0 0 8px rgba(116,199,236,0.06);">
+                            box-shadow:inset 0 0 3px rgba(0,0,0,0.8), \
+                                       0 0 4px rgba(116,199,236,0.06);">
                     <canvas ref={canvas_ref}
                             width={canvas_width.to_string()}
                             height={canvas_height.to_string()}
@@ -162,36 +167,27 @@ fn draw(canvas: &HtmlCanvasElement, snap: &Ssd1306Snapshot) {
         return;
     };
 
-    let w = u32::from(snap.width) * SCALE;
-    let h = u32::from(snap.height) * SCALE;
-    let scale_f = f64::from(SCALE);
+    let w = f64::from(snap.width) * SCALE;
+    let h = f64::from(snap.height) * SCALE;
 
     // Off / unlit background.
     ctx.set_fill_style_str(COLOR_OFF);
-    ctx.fill_rect(0.0, 0.0, f64::from(w), f64::from(h));
+    ctx.fill_rect(0.0, 0.0, w, h);
 
     // When the chip is powered down, just leave the canvas dark and
     // overlay a label. Real OLEDs go fully black when off — no
     // residual ghosting — so a uniform fill is the right look.
     if !snap.display_on {
         ctx.set_fill_style_str("#6c7086");
-        ctx.set_font("14px monospace");
+        ctx.set_font("9px monospace");
         ctx.set_text_align("center");
         ctx.set_text_baseline("middle");
-        let _ = ctx.fill_text(
-            "(display off)",
-            f64::from(w) / 2.0,
-            f64::from(h) / 2.0,
-        );
+        let _ = ctx.fill_text("(display off)", w / 2.0, h / 2.0);
         return;
     }
 
     // Walk the framebuffer. For each lit pixel, draw a SCALE×SCALE
     // rectangle in the colour that band-of-the-display calls for.
-    // Doing the colour split per-pixel inside the loop is cheap; for
-    // a band-aware fast path we could batch yellow + blue
-    // separately, but the canvas operations dominate either way at
-    // 8192 pixels max.
     let max_page = (snap.height / 8).min(PAGES as u16) as usize;
     for page in 0..max_page {
         for col in 0..(snap.width as usize).min(COLS) {
@@ -217,10 +213,10 @@ fn draw(canvas: &HtmlCanvasElement, snap: &Ssd1306Snapshot) {
                 };
                 ctx.set_fill_style_str(color);
                 ctx.fill_rect(
-                    f64::from(col as u32) * scale_f,
-                    f64::from(u32::from(y_px)) * scale_f,
-                    scale_f,
-                    scale_f,
+                    f64::from(col as u32) * SCALE,
+                    f64::from(u32::from(y_px)) * SCALE,
+                    SCALE,
+                    SCALE,
                 );
             }
         }

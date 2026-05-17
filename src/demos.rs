@@ -106,7 +106,9 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Countdown", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s"), config: DemoConfig::NONE },
     Demo { name: "Echo", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s"), config: DemoConfig::NONE },
     Demo { name: "Fibonacci", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s"), config: DemoConfig::NONE },
-    Demo { name: "I2C OLED Hello", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ssd1306_hello.s"), config: DemoConfig::SSD1306_ONLY },
+    // Web-local fork of sibling's i2c_ssd1306_hello.s — adds 1-col
+    // spacer between glyphs so HELLO doesn't read as a single block.
+    Demo { name: "I2C OLED Hello", source: include_str!("examples/i2c_ssd1306_hello.s"), config: DemoConfig::SSD1306_ONLY },
     Demo { name: "I2C OLED RTC Clock", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ssd1306_rtc_clock.s"), config: DemoConfig::RTC_AND_SSD1306 },
     Demo { name: "I2C RTC Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_read.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C RTC Set", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_set.s"), config: DemoConfig::RTC_ONLY },
