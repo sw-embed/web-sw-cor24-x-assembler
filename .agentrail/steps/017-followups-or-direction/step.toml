@@ -1,0 +1,8 @@
+number = 17
+slug = "followups-or-direction"
+status = "pending"
+description = "Open follow-up list: more I2C devices (PCF8563/DS3231 cross-repo to dcemu), I..."
+role = "legacy"
+context_files = []
+created_at = "2026-05-17T10:06:26"
+commits = []

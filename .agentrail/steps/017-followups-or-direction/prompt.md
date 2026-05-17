@@ -1,0 +1,1 @@
+Open follow-up list: more I2C devices (PCF8563/DS3231 cross-repo to dcemu), I2C LCD, UI polish (Cmd/Ctrl+Enter, light/dark, mobile), per-demo budget tuning beyond the adaptive default.
