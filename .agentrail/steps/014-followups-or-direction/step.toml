@@ -1,0 +1,11 @@
+number = 14
+slug = "followups-or-direction"
+status = "pending"
+description = """
+RTC bug-fix cycle done. Open follow-ups (same seed list as before):
+
+1. PCF85..."""
+role = "legacy"
+context_files = []
+created_at = "2026-05-16T19:05:07"
+commits = []
