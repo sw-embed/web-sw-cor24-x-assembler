@@ -231,22 +231,48 @@ fn app() -> Html {
                 } else {
                     None
                 };
-                // DS1307 attach path matrix (per
-                // tools/briefs/dwxas-battery-backed-rtc.md):
-                //   battery off              -> all-zero regs
-                //   battery on, no persisted -> all-zero regs
+                // DS1307 attach path matrix:
+                //   battery off              -> all-zero regs.
+                //   battery on, no persisted -> save fresh anchor
+                //                                {00:00:00, now} and
+                //                                attach from it.
+                //                                Subsequent Runs (or
+                //                                page reloads) then
+                //                                see wall-clock
+                //                                advance via
+                //                                effective_now().
                 //   battery on, persisted    -> effective time-of-day
+                //                                from the anchor.
+                //
+                // The "save anchor on first Run" path is a deliberate
+                // divergence from the original brief's matrix (which
+                // said no-persisted-state -> all-zero regs). With the
+                // brief's path, battery-on was indistinguishable from
+                // battery-off until the user explicitly ran I2C RTC
+                // Set -- which doesn't match a user's mental model of
+                // a battery-backed RTC ("the chip is alive, time
+                // passes, even if I never explicitly set it"). The
+                // anchor lives in the same `ds1307.battery`
+                // localStorage slot as an explicit Set, just seeded
+                // at {0:0:0, attach-time} when nothing's there yet.
                 let h_ds1307 = if config.attach_rtc {
-                    let device = if *ds1307_battery_enabled
-                        && let Some(p) = battery::load()
-                    {
-                        let eff = battery::effective_now(p, js_sys::Date::now());
+                    let device = if *ds1307_battery_enabled {
+                        let now_ms = js_sys::Date::now();
+                        let persisted = battery::load().unwrap_or_else(|| {
+                            let fresh = battery::Persisted {
+                                set_value: battery::SetValue { h: 0, m: 0, s: 0 },
+                                set_at_ms: now_ms,
+                            };
+                            battery::save(fresh);
+                            fresh
+                        });
+                        let eff = battery::effective_now(persisted, now_ms);
                         let mut regs = [0u8; 8];
                         regs[0] = int_to_bcd(eff.s);
                         regs[1] = int_to_bcd(eff.m);
                         regs[2] = int_to_bcd(eff.h);
-                        // date fields stay zero (out of scope per
-                        // brief: persistence is time-of-day only).
+                        // date fields stay zero (persistence is
+                        // time-of-day only per the brief's % 86400).
                         Ds1307Device::with_initial_registers(0x68, regs)
                     } else {
                         Ds1307Device::new(0x68)
