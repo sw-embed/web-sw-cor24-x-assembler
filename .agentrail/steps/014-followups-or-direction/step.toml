@@ -1,6 +1,6 @@
 number = 14
 slug = "followups-or-direction"
-status = "pending"
+status = "completed"
 description = """
 RTC bug-fix cycle done. Open follow-ups (same seed list as before):
 
@@ -8,4 +8,5 @@ RTC bug-fix cycle done. Open follow-ups (same seed list as before):
 role = "legacy"
 context_files = []
 created_at = "2026-05-16T19:05:07"
-commits = []
+completed_at = "2026-05-16T19:38:05"
+commits = ["d9cfa356366ef7a8a10ecdc7a1eed434f13f13ae"]
