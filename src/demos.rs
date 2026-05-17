@@ -43,6 +43,9 @@ pub struct DemoConfig {
     /// in `main.rs` (localStorage); from the device's POV this is
     /// just an attachment toggle.
     pub attach_rtc: bool,
+    /// SSD1306 monochrome OLED at I2C 0x3C. The 'OLED Clock' demo
+    /// pairs this with the RTC, so demos may set both flags.
+    pub attach_ssd1306: bool,
 }
 
 impl DemoConfig {
@@ -52,6 +55,7 @@ impl DemoConfig {
         attach_tmp125: false,
         attach_test_spi: false,
         attach_rtc: false,
+        attach_ssd1306: false,
     };
     pub const TMP101_ONLY: Self = Self {
         attach_tmp101: true,
@@ -71,6 +75,15 @@ impl DemoConfig {
     };
     pub const RTC_ONLY: Self = Self {
         attach_rtc: true,
+        ..Self::NONE
+    };
+    pub const SSD1306_ONLY: Self = Self {
+        attach_ssd1306: true,
+        ..Self::NONE
+    };
+    pub const RTC_AND_SSD1306: Self = Self {
+        attach_rtc: true,
+        attach_ssd1306: true,
         ..Self::NONE
     };
 }
@@ -93,6 +106,8 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Countdown", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/countdown.s"), config: DemoConfig::NONE },
     Demo { name: "Echo", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/echo.s"), config: DemoConfig::NONE },
     Demo { name: "Fibonacci", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/fibonacci.s"), config: DemoConfig::NONE },
+    Demo { name: "I2C OLED Hello", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ssd1306_hello.s"), config: DemoConfig::SSD1306_ONLY },
+    Demo { name: "I2C OLED RTC Clock", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ssd1306_rtc_clock.s"), config: DemoConfig::RTC_AND_SSD1306 },
     Demo { name: "I2C RTC Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_read.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C RTC Set", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_set.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C TMP101 Read", source: include_str!("examples/tmp101_read.s"), config: DemoConfig::TMP101_ONLY },
