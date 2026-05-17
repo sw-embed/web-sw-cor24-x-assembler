@@ -1,6 +1,6 @@
 number = 13
 slug = "followups-or-direction"
-status = "pending"
+status = "in-progress"
 description = """
 Saga's "more I2C devices" arc is in good shape -- TMP101, test
 device, DS1307..."""

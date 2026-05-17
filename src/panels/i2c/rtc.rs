@@ -34,6 +34,10 @@ pub struct Ds1307PanelProps {
     pub battery_enabled: bool,
     /// Toggle handler: emits the new `battery_enabled` value.
     pub on_toggle_battery: Callback<bool>,
+    /// Click handler for the "Set to system time" button. Reads the
+    /// host's `Date.now()`, decomposes to local HH:MM:SS, sets the
+    /// device (if attached) and the persisted state (if battery on).
+    pub on_set_system_time: Callback<MouseEvent>,
 }
 
 #[function_component(Ds1307Panel)]
@@ -83,16 +87,22 @@ pub fn ds1307_panel(props: &Ds1307PanelProps) -> Html {
                 </span>
                 <span style="color:#bac2de; font-size:0.85rem;">{"HH:MM:SS"}</span>
             </div>
-            <div style="display:flex; gap:12px; align-items:center;">
+            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
                 { radio("Battery off", "off", !props.battery_enabled) }
                 { radio("Battery on", "on", props.battery_enabled) }
-                <span style="color:#6c7086; font-size:0.7rem;">
-                    if props.battery_enabled {
-                        {"set the time via I2C RTC Set; persists across reloads (time-of-day only)"}
-                    } else {
-                        {"boots at 00:00:00 every Run"}
-                    }
-                </span>
+                <button onclick={props.on_set_system_time.clone()}
+                        style="padding:3px 10px; background:#89b4fa; color:#1e1e2e; \
+                               border:none; border-radius:4px; font-size:0.75rem; \
+                               font-weight:600; cursor:pointer;">
+                    {"Set to system time"}
+                </button>
+            </div>
+            <div style="color:#6c7086; font-size:0.7rem;">
+                if props.battery_enabled {
+                    {"persists across reloads (time-of-day only, % 86400)"}
+                } else {
+                    {"boots at 00:00:00 every Run unless you 'Set to system time'"}
+                }
             </div>
         </div>
     }

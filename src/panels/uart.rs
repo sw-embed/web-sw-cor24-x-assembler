@@ -1,4 +1,5 @@
-use web_sys::{HtmlElement, KeyboardEvent};
+use wasm_bindgen::JsCast;
+use web_sys::{HtmlElement, HtmlInputElement, KeyboardEvent};
 use yew::prelude::*;
 
 #[derive(Properties, PartialEq)]
@@ -14,9 +15,7 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
     let log_ref = use_node_ref();
 
     // Auto-scroll to the bottom whenever the output grows so the
-    // latest UART characters stay visible. Triggers on every change
-    // to `props.output`; the resize-to-content does no work if the
-    // div hasn't actually overflowed yet.
+    // latest UART characters stay visible.
     {
         let log_ref = log_ref.clone();
         let output_len = props.output.len();
@@ -28,16 +27,11 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
         });
     }
 
-    // Show only the tail of the buffer so a tight read-print loop
-    // doesn't grow an arbitrarily-large DOM text node and choke
-    // layout. The full buffer still lives in the emulator side; this
-    // cap is presentation-only.
+    // Cap the display to the trailing 4 KB of the buffer so a tight
+    // read-print loop doesn't grow an unbounded DOM text node.
     const DISPLAY_TAIL_BYTES: usize = 4096;
     let raw = props.output.as_str();
     let display: &str = if raw.len() > DISPLAY_TAIL_BYTES {
-        // Snap to the next char boundary so we never split a UTF-8
-        // sequence mid-byte. (UART output is normally pure ASCII, but
-        // guard against junk bytes anyway.)
         let cut = raw.len() - DISPLAY_TAIL_BYTES;
         let mut i = cut;
         while i < raw.len() && !raw.is_char_boundary(i) {
@@ -49,18 +43,41 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
     };
     let truncated = raw.len() > DISPLAY_TAIL_BYTES;
 
+    // Keystrokes go through a dedicated text-input element rather than
+    // a div+tabindex+onkeydown. The earlier div-based capture was
+    // brittle: the 60 Hz tick re-renders the App, and on some flows
+    // focus didn't survive to the next key event (the demo never saw
+    // the typed bytes). A real <input>:
+    //   - is a reliable focus target (clicks always focus it),
+    //   - holds focus through re-renders by default,
+    //   - lets the user see what they typed (echoing the bytes
+    //     visually in the input field), which is the missing
+    //     feedback in non-echoing demos like 'I2C RTC Set'.
+    //
+    // We hook onkeydown on the input rather than oninput so we can
+    // route Enter / Backspace through `on_key`'s existing logic
+    // unchanged. The input's `value` is left alone — the browser
+    // manages it and the user sees their characters accumulate.
+    let on_input_keydown = props.on_key.clone();
+    let on_input_click = Callback::from(|e: MouseEvent| {
+        // Defensive: explicitly focus the input on click. Browsers
+        // usually do this for free on type=text, but doing it
+        // explicitly avoids any edge case where a parent stops
+        // event propagation or focus management is off.
+        if let Some(input) = e
+            .target()
+            .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+        {
+            let _ = input.focus();
+        }
+    });
+
     html! {
-        // Container sizes to content (label + capped log). The
-        // previous `flex:1` made it absorb all free space in the I/O
-        // column, which pushed siblings below the fold and made the
-        // log appear to "overlap" the next panel on overflow.
-        // `flex-shrink:0` keeps it from collapsing below its natural
-        // height when many panels share the column.
         <div style="display:flex; flex-direction:column; gap:2px; flex-shrink:0;">
             <div style="color:#bac2de; font-size:0.8rem;">
                 {"UART"}
                 if props.running {
-                    <span style="color:#a6adc8;">{" (type here for input)"}</span>
+                    <span style="color:#a6adc8;">{" (output below; type in the input box to send)"}</span>
                 }
                 if truncated {
                     <span style="color:#6c7086;">
@@ -69,11 +86,9 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
                 }
             </div>
             <div ref={log_ref}
-                onkeydown={props.on_key.clone()} tabindex="0"
                 style="background:#11111b; color:#a6e3a1; padding:8px; border-radius:4px; \
                        font-family:monospace; font-size:13px; white-space:pre-wrap; \
                        min-height:40px; max-height:140px; overflow:auto; \
-                       outline:none; cursor:text; \
                        border:1px solid transparent; box-sizing:border-box;">
                 { if raw.is_empty() && !props.running && !props.halted {
                     html! { <span style="color:#a6adc8;">{"(no output)"}</span> }
@@ -81,6 +96,17 @@ pub fn uart_panel(props: &UartPanelProps) -> Html {
                     html! { display.to_string() }
                 }}
             </div>
+            <input type="text"
+                   onkeydown={on_input_keydown}
+                   onclick={on_input_click}
+                   autocomplete="off"
+                   spellcheck="false"
+                   placeholder={ if props.running { "type here to send to UART RX" } else { "(start a demo to enable input)" } }
+                   disabled={!props.running}
+                   style="background:#11111b; color:#f5e0dc; padding:6px 8px; \
+                          border-radius:4px; border:1px solid #313244; \
+                          font-family:monospace; font-size:13px; outline:none; \
+                          box-sizing:border-box;" />
         </div>
     }
 }
