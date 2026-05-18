@@ -51,6 +51,9 @@ pub struct DemoConfig {
     /// `SpiHandle<SdCardDevice>`. SPI is single-slave today so this
     /// is mutually exclusive with `attach_tmp125` / `attach_test_spi`.
     pub attach_sdcard: bool,
+    /// SPI W25Q32 NOR flash (default CS=3). Same IndexedDB persistence
+    /// shape as the SD card but a fixed 4 MiB image.
+    pub attach_w25q32: bool,
 }
 
 impl DemoConfig {
@@ -62,6 +65,7 @@ impl DemoConfig {
         attach_rtc: false,
         attach_ssd1306: false,
         attach_sdcard: false,
+        attach_w25q32: false,
     };
     pub const TMP101_ONLY: Self = Self {
         attach_tmp101: true,
@@ -101,6 +105,10 @@ impl DemoConfig {
         attach_sdcard: true,
         ..Self::NONE
     };
+    pub const W25Q32_ONLY: Self = Self {
+        attach_w25q32: true,
+        ..Self::NONE
+    };
 }
 
 pub struct Demo {
@@ -138,6 +146,9 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Multiply", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/multiply.s"), config: DemoConfig::NONE },
     Demo { name: "Nested Calls", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/nested_calls.s"), config: DemoConfig::NONE },
     Demo { name: "SPI Echo Ping", source: include_str!("examples/spi_echo_ping.s"), config: DemoConfig::TEST_SPI_ONLY },
+    // 4 MiB NOR flash image is persisted via IndexedDB; "Chip Erase"
+    // wipes the live chip + drops the IDB blob.
+    Demo { name: "SPI NOR Flash Program", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/spi_nor_flash_demo.s"), config: DemoConfig::W25Q32_ONLY },
     // SD card image is persisted via IndexedDB; "Reset to default"
     // restores the bundled 4 KB pattern blob.
     Demo { name: "SPI SD Card Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/spi_sdcard_read.s"), config: DemoConfig::SDCARD_ONLY },

@@ -9,6 +9,7 @@ use yew::prelude::*;
 use super::echo::{EchoPanel, EchoSnapshot};
 use super::sdcard::{SdCardPanel, SdCardSnapshot};
 use super::tmp125::{Tmp125Panel, Tmp125Snapshot};
+use super::w25q32::{W25q32Panel, W25q32Snapshot};
 
 /// Subset of `cor24_emulator::cpu::spi_bus::SpiBusState` that the
 /// container needs for the header. Mirrors the I2C `BusSnapshot`
@@ -35,9 +36,13 @@ pub struct SpiPanelProps {
     pub echo: Option<EchoSnapshot>,
     #[prop_or_default]
     pub sdcard: Option<SdCardSnapshot>,
+    #[prop_or_default]
+    pub w25q32: Option<W25q32Snapshot>,
     pub on_set_tmp125_temperature: Callback<f32>,
     pub on_upload_sdcard: Callback<File>,
     pub on_reset_sdcard: Callback<()>,
+    pub on_upload_w25q32: Callback<File>,
+    pub on_reset_w25q32: Callback<()>,
 }
 
 #[function_component(SpiPanel)]
@@ -45,6 +50,7 @@ pub fn spi_panel(props: &SpiPanelProps) -> Html {
     if props.tmp125.is_none()
         && props.echo.is_none()
         && props.sdcard.is_none()
+        && props.w25q32.is_none()
         && !props.bus.attached
     {
         return html! {};
@@ -94,6 +100,11 @@ pub fn spi_panel(props: &SpiPanelProps) -> Html {
                 <SdCardPanel snapshot={snap.clone()}
                              on_upload={props.on_upload_sdcard.clone()}
                              on_reset={props.on_reset_sdcard.clone()} />
+            }
+            if let Some(snap) = &props.w25q32 {
+                <W25q32Panel snapshot={snap.clone()}
+                             on_upload={props.on_upload_w25q32.clone()}
+                             on_reset={props.on_reset_w25q32.clone()} />
             }
         </div>
     }

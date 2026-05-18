@@ -11,8 +11,10 @@ pub mod container;
 pub mod echo;
 pub mod sdcard;
 pub mod tmp125;
+pub mod w25q32;
 
 pub use container::{SpiBusSnapshot, SpiPanel};
 pub use echo::EchoSnapshot;
 pub use sdcard::SdCardSnapshot;
 pub use tmp125::Tmp125Snapshot;
+pub use w25q32::W25q32Snapshot;
