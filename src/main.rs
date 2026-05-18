@@ -86,6 +86,14 @@ fn app() -> Html {
     // TRAP to detect i2c-write completion and persist to
     // localStorage as soon as it lands.
     let ds1307_last_seen: Rc<RefCell<Option<(u8, u8, u8)>>> = use_mut_ref(|| None);
+    // Wall-clock anchor for the auto-tick pump. Each real-world
+    // second elapsed during a Run drives one `tick_second()` on
+    // the attached chip so the RTC behaves like a real powered
+    // DS1307 (continuous tick) rather than a frozen-at-attach
+    // snapshot. The previous behavior left the OLED RTC Clock demo
+    // showing whatever value the chip held at attach, which read
+    // as a panel-vs-OLED bug when wall-clock time advanced.
+    let ds1307_last_tick_ms: Rc<RefCell<f64>> = use_mut_ref(|| 0.0_f64);
 
     // SPI side: single-slave; either TMP125 or EchoDevice is
     // attached per the demo's config.
@@ -138,6 +146,7 @@ fn app() -> Html {
         let ssd1306_snapshot = ssd1306_snapshot.clone();
         let ds1307_battery_enabled = ds1307_battery_enabled.clone();
         let ds1307_last_seen = ds1307_last_seen.clone();
+        let ds1307_last_tick_ms = ds1307_last_tick_ms.clone();
         let tmp125_handle = tmp125_handle.clone();
         let echo_handle = echo_handle.clone();
         let spi_bus_snapshot = spi_bus_snapshot.clone();
@@ -145,7 +154,7 @@ fn app() -> Html {
         let echo_snapshot = echo_snapshot.clone();
         let demo_config = demo_config.clone();
 
-        Callback::from(move |_: MouseEvent| {
+        Callback::from(move |()| {
             // Stop any existing run loop.
             *interval_handle.borrow_mut() = None;
             runtime_error_line.set(None);
@@ -346,9 +355,11 @@ fn app() -> Html {
                 let snap = read_ds1307_snapshot(h);
                 ds1307_snapshot.set(Some(snap));
                 *ds1307_last_seen.borrow_mut() = Some((snap.hour, snap.minute, snap.second));
+                *ds1307_last_tick_ms.borrow_mut() = js_sys::Date::now();
             } else {
                 ds1307_snapshot.set(None);
                 *ds1307_last_seen.borrow_mut() = None;
+                *ds1307_last_tick_ms.borrow_mut() = 0.0;
             }
             *ds1307_handle.borrow_mut() = h_ds1307;
             if let Some(h) = &h_ssd1306 {
@@ -412,6 +423,7 @@ fn app() -> Html {
             let ssd1306_snapshot = ssd1306_snapshot.clone();
             let ds1307_battery_enabled = ds1307_battery_enabled.clone();
             let ds1307_last_seen = ds1307_last_seen.clone();
+            let ds1307_last_tick_ms = ds1307_last_tick_ms.clone();
             let tmp125_handle = tmp125_handle.clone();
             let echo_handle = echo_handle.clone();
             let spi_bus_snapshot = spi_bus_snapshot.clone();
@@ -508,34 +520,51 @@ fn app() -> Html {
                     ssd1306_snapshot.set(Some(read_ssd1306_snapshot(h)));
                 }
                 if let Some(h) = ds1307_handle.borrow().as_ref() {
-                    let snap = read_ds1307_snapshot(h);
-                    ds1307_snapshot.set(Some(snap));
-                    // THE SYNCHRONIZATION TRAP (per brief): detect
-                    // any change to the (h,m,s) register tuple this
-                    // tick and persist it to localStorage with the
-                    // current wall-clock time. Coalesces naturally
-                    // -- one setItem per tick at most. Only fires
-                    // when the battery toggle is on so toggling off
-                    // is "throw away future writes" rather than
-                    // "throw away history".
-                    let now_tuple = (snap.hour, snap.minute, snap.second);
-                    let mut last = ds1307_last_seen.borrow_mut();
-                    if *last != Some(now_tuple) {
-                        if *ds1307_battery_enabled && last.is_some() {
-                            // last.is_some() guard means we don't
-                            // persist the boot-time read; only real
-                            // i2c-write-completion crossings.
-                            battery::save(battery::Persisted {
-                                set_value: battery::SetValue {
-                                    h: snap.hour,
-                                    m: snap.minute,
-                                    s: snap.second,
-                                },
-                                set_at_ms: js_sys::Date::now(),
-                            });
+                    // Order matters: trap fires on the *pre-tick*
+                    // snapshot so external writes (Set demo, Set To
+                    // System Time button) get persisted, then the
+                    // auto-tick pump advances the chip silently, then
+                    // last_seen syncs to the post-tick value so the
+                    // next tick's trap sees no spurious change.
+                    let pre = read_ds1307_snapshot(h);
+                    let pre_tuple = (pre.hour, pre.minute, pre.second);
+                    {
+                        let mut last = ds1307_last_seen.borrow_mut();
+                        if *last != Some(pre_tuple) {
+                            if *ds1307_battery_enabled && last.is_some() {
+                                // Boot-time guard preserved: only real
+                                // user-write crossings persist.
+                                battery::save(battery::Persisted {
+                                    set_value: battery::SetValue {
+                                        h: pre.hour,
+                                        m: pre.minute,
+                                        s: pre.second,
+                                    },
+                                    set_at_ms: js_sys::Date::now(),
+                                });
+                            }
+                            *last = Some(pre_tuple);
                         }
-                        *last = Some(now_tuple);
                     }
+
+                    // Auto-tick once per real-world second; catch up
+                    // if the browser deprioritized us. tick_second()
+                    // cascades through minutes/hours/etc.
+                    let now_ms = js_sys::Date::now();
+                    {
+                        let mut anchor = ds1307_last_tick_ms.borrow_mut();
+                        while now_ms - *anchor >= 1000.0 {
+                            h.tick_second();
+                            *anchor += 1000.0;
+                        }
+                    }
+
+                    // Sync last_seen to post-tick value so the auto-
+                    // tick advance isn't mistaken for a user write
+                    // on the next tick.
+                    let post = read_ds1307_snapshot(h);
+                    *ds1307_last_seen.borrow_mut() = Some((post.hour, post.minute, post.second));
+                    ds1307_snapshot.set(Some(post));
                 }
 
                 // Update SPI bus header + TMP125 snapshot.
@@ -797,6 +826,33 @@ fn app() -> Html {
         })
     };
 
+    // --- Global Cmd/Ctrl+Enter shortcut: fire Assemble & Run from
+    // anywhere on the page (editor, panels, even with no focus). The
+    // listener registers once on mount and forgets the closure so it
+    // lives for the page lifetime; cleanup would require tracking
+    // the JS function pointer, which is overkill for a single-shot
+    // listener that never gets re-attached.
+    {
+        let on_run = on_run.clone();
+        use_effect_with((), move |_| {
+            use wasm_bindgen::closure::Closure;
+            let cb = Closure::wrap(Box::new(move |e: KeyboardEvent| {
+                if e.key() == "Enter" && (e.meta_key() || e.ctrl_key()) {
+                    e.prevent_default();
+                    on_run.emit(());
+                }
+            }) as Box<dyn FnMut(KeyboardEvent)>);
+            if let Some(window) = web_sys::window() {
+                let _ = window.add_event_listener_with_callback(
+                    "keydown",
+                    cb.as_ref().unchecked_ref(),
+                );
+            }
+            cb.forget();
+            || ()
+        });
+    }
+
     // --- Error lines for highlighting ---
     let asm_error_line = assemble_error
         .as_ref()
@@ -922,7 +978,11 @@ fn app() -> Html {
 
             // Button bar.
             <div style="display:flex; gap:12px; align-items:center;">
-                <button onclick={on_run}
+                <button onclick={
+                        let on_run = on_run.clone();
+                        Callback::from(move |_: MouseEvent| on_run.emit(()))
+                    }
+                    title="Assemble & Run (Cmd/Ctrl+Enter)"
                     style="padding:8px 24px; background:#89b4fa; color:#1e1e2e; \
                            border:none; border-radius:6px; font-size:1rem; font-weight:600; \
                            cursor:pointer;">

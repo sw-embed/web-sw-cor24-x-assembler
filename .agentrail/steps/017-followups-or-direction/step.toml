@@ -1,6 +1,6 @@
 number = 17
 slug = "followups-or-direction"
-status = "pending"
+status = "in-progress"
 description = "Open follow-up list: more I2C devices (PCF8563/DS3231 cross-repo to dcemu), I..."
 role = "legacy"
 context_files = []
