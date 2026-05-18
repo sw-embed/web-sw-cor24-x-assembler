@@ -86,6 +86,11 @@ impl DemoConfig {
         attach_ssd1306: true,
         ..Self::NONE
     };
+    pub const TMP101_AND_SSD1306: Self = Self {
+        attach_tmp101: true,
+        attach_ssd1306: true,
+        ..Self::NONE
+    };
 }
 
 pub struct Demo {
@@ -110,6 +115,9 @@ pub const EXAMPLES: &[Demo] = &[
     // spacer between glyphs so HELLO doesn't read as a single block.
     Demo { name: "I2C OLED Hello", source: include_str!("examples/i2c_ssd1306_hello.s"), config: DemoConfig::SSD1306_ONLY },
     Demo { name: "I2C OLED RTC Clock", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ssd1306_rtc_clock.s"), config: DemoConfig::RTC_AND_SSD1306 },
+    // Web-local: TMP101 high byte rendered as "+NN\xB0C" on the OLED.
+    // Drag the TMP101 panel slider and watch the display follow.
+    Demo { name: "I2C OLED Thermometer", source: include_str!("examples/i2c_ssd1306_tmp101.s"), config: DemoConfig::TMP101_AND_SSD1306 },
     Demo { name: "I2C RTC Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_read.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C RTC Set", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/i2c_ds1307_set.s"), config: DemoConfig::RTC_ONLY },
     Demo { name: "I2C TMP101 Read", source: include_str!("examples/tmp101_read.s"), config: DemoConfig::TMP101_ONLY },
