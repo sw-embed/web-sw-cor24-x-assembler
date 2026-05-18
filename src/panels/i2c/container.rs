@@ -65,9 +65,6 @@ pub struct I2cPanelProps {
     /// Fires when the user drags the TMP101 slider. Plumbed through
     /// to `Tmp101Panel`; ignored when `tmp101` is `None`.
     pub on_set_tmp101_temperature: Callback<f32>,
-    /// Fires when the user drags the test device's "poke" slider.
-    /// Ignored when `test_device` is `None`.
-    pub on_poke_test_device: Callback<u8>,
     /// Fires when the user flips the battery radio on/off.
     pub on_toggle_ds1307_battery: Callback<bool>,
     /// Fires when the user clicks "Set to system time" on the RTC card.
@@ -134,8 +131,7 @@ pub fn i2c_panel(props: &I2cPanelProps) -> Html {
                              on_set_temperature={props.on_set_tmp101_temperature.clone()} />
             }
             if let Some(snap) = props.test_device {
-                <TestDevicePanel snapshot={snap}
-                                 on_poke={props.on_poke_test_device.clone()} />
+                <TestDevicePanel snapshot={snap} />
             }
             if let Some(snap) = props.ds1307 {
                 <Ds1307Panel snapshot={snap}
