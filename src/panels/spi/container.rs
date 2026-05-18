@@ -32,7 +32,6 @@ pub struct SpiPanelProps {
     #[prop_or_default]
     pub echo: Option<EchoSnapshot>,
     pub on_set_tmp125_temperature: Callback<f32>,
-    pub on_poke_echo: Callback<u8>,
 }
 
 #[function_component(SpiPanel)]
@@ -79,8 +78,7 @@ pub fn spi_panel(props: &SpiPanelProps) -> Html {
                              on_set_temperature={props.on_set_tmp125_temperature.clone()} />
             }
             if let Some(snap) = props.echo {
-                <EchoPanel snapshot={snap}
-                           on_poke={props.on_poke_echo.clone()} />
+                <EchoPanel snapshot={snap} />
             }
         </div>
     }

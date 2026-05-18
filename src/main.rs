@@ -647,20 +647,6 @@ fn app() -> Html {
         })
     };
 
-    let on_poke_test_device = {
-        let test_device_handle = test_device_handle.clone();
-        let test_device_snapshot = test_device_snapshot.clone();
-        Callback::from(move |byte: u8| {
-            if let Some(h) = test_device_handle.borrow().as_ref() {
-                h.with(|d| d.poke(byte));
-                test_device_snapshot.set(Some(read_test_device_snapshot(h)));
-            } else if let Some(mut snap) = *test_device_snapshot {
-                snap.last_byte = byte;
-                test_device_snapshot.set(Some(snap));
-            }
-        })
-    };
-
     let on_set_tmp125_temperature = {
         let tmp125_handle = tmp125_handle.clone();
         let tmp125_snapshot = tmp125_snapshot.clone();
@@ -725,20 +711,6 @@ fn app() -> Html {
                 minute: m,
                 second: s,
             }));
-        })
-    };
-
-    let on_poke_echo = {
-        let echo_handle = echo_handle.clone();
-        let echo_snapshot = echo_snapshot.clone();
-        Callback::from(move |byte: u8| {
-            if let Some(h) = echo_handle.borrow().as_ref() {
-                h.with(|d| d.poke(byte));
-                echo_snapshot.set(Some(read_echo_snapshot(h)));
-            } else if let Some(mut snap) = *echo_snapshot {
-                snap.buffer = byte;
-                echo_snapshot.set(Some(snap));
-            }
         })
     };
 
@@ -930,15 +902,13 @@ fn app() -> Html {
                                   ds1307_battery_enabled={*ds1307_battery_enabled}
                                   ssd1306={(*ssd1306_snapshot).clone()}
                                   on_set_tmp101_temperature={on_set_tmp101_temperature}
-                                  on_poke_test_device={on_poke_test_device}
                                   on_toggle_ds1307_battery={on_toggle_ds1307_battery}
                                   on_set_ds1307_system_time={on_set_ds1307_system_time} />
 
                         <SpiPanel bus={*spi_bus_snapshot}
                                   tmp125={*tmp125_snapshot}
                                   echo={*echo_snapshot}
-                                  on_set_tmp125_temperature={on_set_tmp125_temperature}
-                                  on_poke_echo={on_poke_echo} />
+                                  on_set_tmp125_temperature={on_set_tmp125_temperature} />
 
                         <div style="display:flex; justify-content:space-between; align-items:center; \
                                     font-size:0.8rem; color:#bac2de; border-top:1px solid #313244; \

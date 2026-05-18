@@ -4,12 +4,12 @@
 //! `Add1Device`) in the I/O panel. The chip's role is "exercise
 //! every I2C bus path and accrete registers as we add features";
 //! today the only register is the stored byte, exposed via
-//! `peek()` and `poke()` -- so the panel shows the current stored
-//! byte and lets the user nudge it. As the upstream slave grows
-//! registers, this panel grows controls.
+//! `peek()` and `poke()`. Read-only readout — the demo writes to
+//! the slave on every loop iteration, so a user-facing poke
+//! slider would just snap back within a frame. As the upstream
+//! slave grows registers that *aren't* bus-driven, this panel can
+//! grow controls for them.
 
-use wasm_bindgen::JsCast;
-use web_sys::HtmlInputElement;
 use yew::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,27 +24,11 @@ pub struct TestDeviceSnapshot {
 #[derive(Properties, PartialEq)]
 pub struct TestDevicePanelProps {
     pub snapshot: TestDeviceSnapshot,
-    /// Invoked when the user types a new byte; main.rs translates
-    /// that to `handle.with(|d| d.poke(v))`.
-    pub on_poke: Callback<u8>,
 }
 
 #[function_component(TestDevicePanel)]
 pub fn test_device_panel(props: &TestDevicePanelProps) -> Html {
     let s = &props.snapshot;
-
-    let on_input = {
-        let on_poke = props.on_poke.clone();
-        Callback::from(move |e: InputEvent| {
-            if let Some(input) = e
-                .target()
-                .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
-                && let Ok(v) = input.value().parse::<u8>()
-            {
-                on_poke.emit(v);
-            }
-        })
-    };
 
     html! {
         <div style="background:#11111b; padding:8px; border-radius:4px; \
@@ -65,19 +49,6 @@ pub fn test_device_panel(props: &TestDevicePanelProps) -> Html {
                 <span style="color:#a6adc8; font-size:0.7rem; margin-left:auto;">
                     {format!("next read: 0x{:02X}", s.last_byte.wrapping_add(1))}
                 </span>
-            </div>
-            <input type="range"
-                   min="0"
-                   max="255"
-                   step="1"
-                   value={format!("{}", s.last_byte)}
-                   oninput={on_input}
-                   style="width:100%; accent-color:#a6e3a1;" />
-            <div style="display:flex; justify-content:space-between; \
-                        color:#6c7086; font-size:0.7rem; font-family:monospace;">
-                <span>{"0x00"}</span>
-                <span>{"drag to poke the stored byte"}</span>
-                <span>{"0xFF"}</span>
             </div>
         </div>
     }
