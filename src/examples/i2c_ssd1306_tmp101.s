@@ -168,10 +168,12 @@ main_loop:
         pop     r2
 
         ; ----- Stash sign glyph + abs value on fp frame -----
+        ; Stack grows down (push decrements sp), so the LAST push has
+        ; the LOWEST address -- i.e. fp+0.
         ; Frame layout (relative to fp set below):
-        ;   fp+0  = saved fp
+        ;   fp+0  = |T|              (pushed last)
         ;   fp+3  = sign glyph addr
-        ;   fp+6  = |T|
+        ;   fp+6  = saved fp         (pushed first)
         push    fp
         push    r2              ; sign glyph addr
         push    r0              ; |T|
@@ -228,7 +230,7 @@ main_loop:
         jal     r1, (r2)
 .ml_dat_c:
 
-        ; (1) sign glyph
+        ; (1) sign glyph (at fp+3 per frame layout above)
         lw      r0, 3(fp)
         la      r1, .ml_w_sign
         la      r2, write5
@@ -236,8 +238,8 @@ main_loop:
 .ml_w_sign:
 
         ; (2,3) Decompose |T| into tens, ones via subtract-by-10. After the
-        ; loop r0 = ones, the count of subtractions = tens.
-        lw      r0, 6(fp)
+        ; loop r0 = ones, the count of subtractions = tens. |T| is at fp+0.
+        lw      r0, 0(fp)
         lc      r1, 0           ; tens counter
 .ml_tens:
         lcu     r2, 10
