@@ -83,6 +83,30 @@ This repo is hosted on a devgroup workstation. Run `onboarding` (in
   `feat/*`.
 - **After merge:** `git fetch origin --prune && git switch dev && git branch -D pr/<slug>`.
 
+## One `pr/*` at a time
+
+Because `pages/` contains per-build hash-named wasm/js artifacts
+that every PR rewrites, parallel `pr/*` branches in this repo
+always conflict on `pages/` and force a rebase-and-rebuild cycle.
+To avoid this churn:
+
+- **Only one `pr/*` in flight at a time.** After signaling
+  `pr/<slug>` via `dg-mark-pr`, stop and wait for the relay →
+  promote → reap cycle before starting the next step's work.
+- **For sequential / dependent work,** branch the next step off
+  `pr/<slug>` (not off `dev`) and keep it named `feat/*` until
+  the parent `pr/*` ships. Only one `pr/*` exists in the clone
+  at any moment.
+- **`dg-reap` is the signal** that you're free to start the next
+  step — it deletes the locally-merged `pr/<slug>` once the PR
+  has landed on `origin/dev`.
+
+This discipline is web-repo specific: sibling repos (`dcxas`,
+`dcemu`, etc.) don't commit hash-named build artifacts, so their
+parallel PRs don't deadlock on `pages/`. See
+[`docs/briefs/4-dwxas-serialize-pr-branches.md`](docs/briefs/4-dwxas-serialize-pr-branches.md)
+for the rationale and the incident that prompted it.
+
 ---
 
 # Agentrail process
