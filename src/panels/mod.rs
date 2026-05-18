@@ -19,6 +19,6 @@ pub use i2c::{
 };
 pub use led::LedPanel;
 pub use registers::RegistersPanel;
-pub use spi::{EchoSnapshot, SpiBusSnapshot, SpiPanel, Tmp125Snapshot};
+pub use spi::{EchoSnapshot, SdCardSnapshot, SpiBusSnapshot, SpiPanel, Tmp125Snapshot};
 pub use switch::SwitchPanel;
 pub use uart::UartPanel;

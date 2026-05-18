@@ -46,6 +46,11 @@ pub struct DemoConfig {
     /// SSD1306 monochrome OLED at I2C 0x3C. The 'OLED Clock' demo
     /// pairs this with the RTC, so demos may set both flags.
     pub attach_ssd1306: bool,
+    /// SPI SD card (default CS=2). Web-side persists the disk image
+    /// across reloads via IndexedDB; emulator side just sees a
+    /// `SpiHandle<SdCardDevice>`. SPI is single-slave today so this
+    /// is mutually exclusive with `attach_tmp125` / `attach_test_spi`.
+    pub attach_sdcard: bool,
 }
 
 impl DemoConfig {
@@ -56,6 +61,7 @@ impl DemoConfig {
         attach_test_spi: false,
         attach_rtc: false,
         attach_ssd1306: false,
+        attach_sdcard: false,
     };
     pub const TMP101_ONLY: Self = Self {
         attach_tmp101: true,
@@ -89,6 +95,10 @@ impl DemoConfig {
     pub const TMP101_AND_SSD1306: Self = Self {
         attach_tmp101: true,
         attach_ssd1306: true,
+        ..Self::NONE
+    };
+    pub const SDCARD_ONLY: Self = Self {
+        attach_sdcard: true,
         ..Self::NONE
     };
 }
@@ -128,6 +138,9 @@ pub const EXAMPLES: &[Demo] = &[
     Demo { name: "Multiply", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/multiply.s"), config: DemoConfig::NONE },
     Demo { name: "Nested Calls", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/nested_calls.s"), config: DemoConfig::NONE },
     Demo { name: "SPI Echo Ping", source: include_str!("examples/spi_echo_ping.s"), config: DemoConfig::TEST_SPI_ONLY },
+    // SD card image is persisted via IndexedDB; "Reset to default"
+    // restores the bundled 4 KB pattern blob.
+    Demo { name: "SPI SD Card Read", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/spi_sdcard_read.s"), config: DemoConfig::SDCARD_ONLY },
     Demo { name: "SPI TMP125 Read", source: include_str!("examples/tmp125_read.s"), config: DemoConfig::TMP125_ONLY },
     Demo { name: "Stack Variables", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/stack_variables.s"), config: DemoConfig::NONE },
     Demo { name: "UART Hello", source: include_str!("../../sw-cor24-x-assembler/src/examples/assembler/uart_hello.s"), config: DemoConfig::NONE },

@@ -9,8 +9,10 @@
 
 pub mod container;
 pub mod echo;
+pub mod sdcard;
 pub mod tmp125;
 
 pub use container::{SpiBusSnapshot, SpiPanel};
 pub use echo::EchoSnapshot;
+pub use sdcard::SdCardSnapshot;
 pub use tmp125::Tmp125Snapshot;
