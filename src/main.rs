@@ -11,6 +11,7 @@ mod battery;
 mod demos;
 mod editor;
 mod highlight;
+mod idb;
 mod panels;
 
 use std::cell::RefCell;
@@ -22,17 +23,46 @@ use cor24_emulator::peripherals::i2c::{
     Add1Device, Ds1307Device, Ds1307HandleExt, I2cDevice, I2cHandle, Ssd1306Device, Tmp101Device,
     Tmp101HandleExt, Tmp101Resolution,
 };
-use cor24_emulator::peripherals::spi::{EchoDevice, SpiHandle, Tmp125Device, Tmp125HandleExt};
+use cor24_emulator::peripherals::spi::{
+    EchoDevice, SdCardDevice, SdCardHandleExt, SpiHandle, Tmp125Device, Tmp125HandleExt,
+    W25q32Device, W25q32HandleExt,
+};
+use js_sys::Uint8Array;
 use wasm_bindgen::JsCast;
-use web_sys::{HtmlSelectElement, KeyboardEvent};
+use wasm_bindgen::closure::Closure;
+use wasm_bindgen_futures::spawn_local;
+use web_sys::{File, FileReader, HtmlSelectElement, KeyboardEvent};
 use yew::prelude::*;
 
 use editor::Editor;
 use panels::{
-    BusSnapshot, Ds1307Snapshot, EchoSnapshot, I2cPanel, LedPanel, RegistersPanel, SpiBusSnapshot,
-    SpiPanel, Ssd1306Snapshot, SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot, Tmp125Snapshot,
-    UartPanel,
+    BusSnapshot, Ds1307Snapshot, EchoSnapshot, I2cPanel, LedPanel, RegistersPanel, SdCardSnapshot,
+    SpiBusSnapshot, SpiPanel, Ssd1306Snapshot, SwitchPanel, TestDeviceSnapshot, Tmp101Snapshot,
+    Tmp125Snapshot, UartPanel, W25q32Snapshot,
 };
+
+/// Bundled default SD card image: 4 KiB blob with recognizable
+/// per-sector patterns (sector 0 starts with `00 01 02 ...`,
+/// sector 1 with `10 11 12 ...`, etc.). Loaded as the initial
+/// image when no user upload is persisted in IndexedDB.
+const SDCARD_DEFAULT_IMAGE: &[u8] = include_bytes!("../static/sdcard-default.img");
+
+/// IDB key for the persisted SD card image.
+const SDCARD_IDB_KEY: &str = "sdcard.image";
+
+/// IDB key for the persisted W25Q32 NOR flash image.
+const W25Q32_IDB_KEY: &str = "w25q32.image";
+/// W25Q32 sector size (4 KiB). Mirrors the constant in the emulator
+/// but we don't import it to avoid a dependency on the device's
+/// internal layout module.
+const W25Q32_SECTOR_SIZE: usize = 4 * 1024;
+/// 1024 sectors in 4 MiB.
+const W25Q32_SECTOR_COUNT: usize = 1024;
+/// Per-tick decay applied to each sector_activity counter. 4 ticks
+/// = ~64ms means a freshly-written sector visibly cools over ~4s.
+const W25Q32_HEAT_DECAY: u8 = 4;
+/// Heat bump on a fresh write/erase: saturate to 255.
+const W25Q32_HEAT_BUMP: u8 = 255;
 
 #[function_component(App)]
 fn app() -> Html {
@@ -95,13 +125,63 @@ fn app() -> Html {
     // as a panel-vs-OLED bug when wall-clock time advanced.
     let ds1307_last_tick_ms: Rc<RefCell<f64>> = use_mut_ref(|| 0.0_f64);
 
-    // SPI side: single-slave; either TMP125 or EchoDevice is
-    // attached per the demo's config.
+    // SPI side: single-slave; one of TMP125, EchoDevice, or SdCard
+    // is attached per the demo's config.
     let tmp125_handle: Rc<RefCell<Option<SpiHandle<Tmp125Device>>>> = use_mut_ref(|| None);
     let echo_handle: Rc<RefCell<Option<SpiHandle<EchoDevice>>>> = use_mut_ref(|| None);
+    let sdcard_handle: Rc<RefCell<Option<SpiHandle<SdCardDevice>>>> = use_mut_ref(|| None);
+    let w25q32_handle: Rc<RefCell<Option<SpiHandle<W25q32Device>>>> = use_mut_ref(|| None);
     let spi_bus_snapshot = use_state(SpiBusSnapshot::default);
     let tmp125_snapshot = use_state(|| None::<Tmp125Snapshot>);
     let echo_snapshot = use_state(|| None::<EchoSnapshot>);
+    let sdcard_snapshot = use_state(|| None::<SdCardSnapshot>);
+    let w25q32_snapshot = use_state(|| None::<W25q32Snapshot>);
+    // SD card image bytes that the next Run will attach the chip
+    // with. Starts as the bundled default; an IDB load on mount may
+    // replace it with the user's prior upload; a file-upload or
+    // "Reset to default" replaces it inline. The persistence trap
+    // writes through to IDB on each successful upload / reset.
+    let sdcard_image: Rc<RefCell<Vec<u8>>> = use_mut_ref(|| SDCARD_DEFAULT_IMAGE.to_vec());
+    // W25Q32 image bytes -- same shape as the SD card. Default is
+    // 4 MiB of 0xFF (factory-erased flash).
+    let w25q32_image: Rc<RefCell<Vec<u8>>> = use_mut_ref(|| vec![0xFFu8; 4 * 1024 * 1024]);
+    // Per-tick heatmap state. activity[i] is the cooling counter
+    // for sector i; last_addr is the previous tick's read of the
+    // chip's last_accessed_address, used to detect rising-edge
+    // changes for the heat bump. Kept as Rc<RefCell> so the tick
+    // loop, the upload callback, and the reset callback all mutate
+    // a single shared buffer.
+    let w25q32_activity: Rc<RefCell<Vec<u8>>> =
+        use_mut_ref(|| vec![0u8; W25Q32_SECTOR_COUNT]);
+    let w25q32_last_addr: Rc<RefCell<Option<u32>>> = use_mut_ref(|| None);
+    // Per-tick "is this sector all 0xFF?" cache. Initial: every
+    // sector erased (matches the 0xFF default image). Recomputed
+    // on writes via the tick-loop heat trap.
+    let w25q32_erased: Rc<RefCell<Vec<bool>>> =
+        use_mut_ref(|| vec![true; W25Q32_SECTOR_COUNT]);
+
+    // One-time IDB restore on mount: if a prior session uploaded
+    // an image, swap it into the corresponding image-bytes ref so
+    // the next Assemble & Run picks it up. Cheap when IDB is empty
+    // (single readonly transaction returns null).
+    {
+        let sdcard_image = sdcard_image.clone();
+        let w25q32_image = w25q32_image.clone();
+        let w25q32_erased = w25q32_erased.clone();
+        use_effect_with((), move |_| {
+            spawn_local(async move {
+                if let Some(bytes) = idb::get(SDCARD_IDB_KEY).await {
+                    *sdcard_image.borrow_mut() = bytes;
+                }
+                if let Some(bytes) = idb::get(W25Q32_IDB_KEY).await {
+                    let erased = compute_w25q32_erased(&bytes);
+                    *w25q32_image.borrow_mut() = bytes;
+                    *w25q32_erased.borrow_mut() = erased;
+                }
+            });
+            || ()
+        });
+    }
 
     // UART input buffer (keyboard → emulator, drained in run loop)
     let uart_input: Rc<RefCell<std::collections::VecDeque<u8>>> =
@@ -149,9 +229,18 @@ fn app() -> Html {
         let ds1307_last_tick_ms = ds1307_last_tick_ms.clone();
         let tmp125_handle = tmp125_handle.clone();
         let echo_handle = echo_handle.clone();
+        let sdcard_handle = sdcard_handle.clone();
+        let w25q32_handle = w25q32_handle.clone();
         let spi_bus_snapshot = spi_bus_snapshot.clone();
         let tmp125_snapshot = tmp125_snapshot.clone();
         let echo_snapshot = echo_snapshot.clone();
+        let sdcard_snapshot = sdcard_snapshot.clone();
+        let w25q32_snapshot = w25q32_snapshot.clone();
+        let sdcard_image = sdcard_image.clone();
+        let w25q32_image = w25q32_image.clone();
+        let w25q32_activity = w25q32_activity.clone();
+        let w25q32_last_addr = w25q32_last_addr.clone();
+        let w25q32_erased = w25q32_erased.clone();
         let demo_config = demo_config.clone();
 
         Callback::from(move |()| {
@@ -190,7 +279,7 @@ fn app() -> Html {
             // stay hidden -- so picking 'I2C TMP101 Read' shows only
             // the TMP101 card, not the unrelated test-device row
             // or the SPI bus.
-            let (h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo) = {
+            let (h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo, h_sdcard, h_w25q32) = {
                 let mut e = emu.borrow_mut();
                 *e = EmulatorCore::new();
                 match &bytes {
@@ -328,9 +417,34 @@ fn app() -> Html {
                 } else {
                     None
                 };
+                // SD card: attach with whichever image bytes the panel
+                // currently has (IDB-restored upload or bundled default).
+                // The image is cloned because the device owns its
+                // Vec<u8>; on subsequent uploads the panel pushes new
+                // bytes into both `sdcard_image` and the live handle
+                // via `replace_image`.
+                let h_sdcard = if config.attach_sdcard {
+                    let image = sdcard_image.borrow().clone();
+                    Some(e.attach_spi_device(SdCardDevice::with_image(image, None, 2)))
+                } else {
+                    None
+                };
+                // W25Q32: attach with whichever 4 MiB image bytes the
+                // panel currently has (IDB-restored or fresh-erased
+                // 0xFF default). The emulator normalizes any length
+                // to exactly 4 MiB so a short / overlong upload is
+                // padded or truncated transparently.
+                let h_w25q32 = if config.attach_w25q32 {
+                    let image = w25q32_image.borrow().clone();
+                    Some(e.attach_spi_device(W25q32Device::with_image(image, None, 3)))
+                } else {
+                    None
+                };
 
                 e.resume();
-                (h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo)
+                (
+                    h_tmp101, h_test, h_ds1307, h_ssd1306, h_tmp125, h_echo, h_sdcard, h_w25q32,
+                )
             };
 
             // Seed each device-card snapshot if its device was
@@ -380,6 +494,27 @@ fn app() -> Html {
                 echo_snapshot.set(None);
             }
             *echo_handle.borrow_mut() = h_echo;
+            if let Some(h) = &h_sdcard {
+                sdcard_snapshot.set(Some(read_sdcard_snapshot(h)));
+            } else {
+                sdcard_snapshot.set(None);
+            }
+            *sdcard_handle.borrow_mut() = h_sdcard;
+            // W25Q32: clear the per-tick heatmap state so a new Run
+            // starts cool; the erased-flag cache stays correct
+            // because it reflects image bytes, not per-Run history.
+            if let Some(h) = &h_w25q32 {
+                *w25q32_activity.borrow_mut() = vec![0u8; W25Q32_SECTOR_COUNT];
+                *w25q32_last_addr.borrow_mut() = None;
+                w25q32_snapshot.set(Some(read_w25q32_snapshot(
+                    h,
+                    &w25q32_activity.borrow(),
+                    &w25q32_erased.borrow(),
+                )));
+            } else {
+                w25q32_snapshot.set(None);
+            }
+            *w25q32_handle.borrow_mut() = h_w25q32;
 
             // Reset display state.
             uart_output.set(String::new());
@@ -426,9 +561,17 @@ fn app() -> Html {
             let ds1307_last_tick_ms = ds1307_last_tick_ms.clone();
             let tmp125_handle = tmp125_handle.clone();
             let echo_handle = echo_handle.clone();
+            let sdcard_handle = sdcard_handle.clone();
+            let w25q32_handle = w25q32_handle.clone();
             let spi_bus_snapshot = spi_bus_snapshot.clone();
             let tmp125_snapshot = tmp125_snapshot.clone();
             let echo_snapshot = echo_snapshot.clone();
+            let sdcard_snapshot = sdcard_snapshot.clone();
+            let w25q32_snapshot = w25q32_snapshot.clone();
+            let w25q32_image = w25q32_image.clone();
+            let w25q32_activity = w25q32_activity.clone();
+            let w25q32_last_addr = w25q32_last_addr.clone();
+            let w25q32_erased = w25q32_erased.clone();
 
             let interval = gloo_timers::callback::Interval::new(16, move || {
                 let mut e = emu.borrow_mut();
@@ -582,6 +725,57 @@ fn app() -> Html {
                 if let Some(h) = echo_handle.borrow().as_ref() {
                     echo_snapshot.set(Some(read_echo_snapshot(h)));
                 }
+                if let Some(h) = sdcard_handle.borrow().as_ref() {
+                    sdcard_snapshot.set(Some(read_sdcard_snapshot(h)));
+                }
+                if let Some(h) = w25q32_handle.borrow().as_ref() {
+                    // W25Q32 trap: detect address-change crossings to
+                    // bump the heatmap; decay all sectors each tick;
+                    // on a write (image content changed), persist to
+                    // IDB + recompute the erased-flag cache. The
+                    // address watch is rising-edge-only because the
+                    // emulator's `last_accessed_address` sticks
+                    // forever after the first access -- without an
+                    // edge detect we'd re-bump the same sector each
+                    // tick and the heatmap would never cool.
+                    let cur_addr = h.last_accessed_address();
+                    let prev_addr = *w25q32_last_addr.borrow();
+                    let address_changed = cur_addr != prev_addr;
+                    if address_changed {
+                        if let Some(a) = cur_addr {
+                            let sector = (a as usize / W25Q32_SECTOR_SIZE).min(W25Q32_SECTOR_COUNT - 1);
+                            w25q32_activity.borrow_mut()[sector] = W25Q32_HEAT_BUMP;
+                        }
+                        *w25q32_last_addr.borrow_mut() = cur_addr;
+                    }
+                    // Decay all sectors. Saturating subtract keeps
+                    // cold sectors at 0.
+                    for a in w25q32_activity.borrow_mut().iter_mut() {
+                        *a = a.saturating_sub(W25Q32_HEAT_DECAY);
+                    }
+                    // Persist image if anything changed (any active
+                    // sector means a recent program/erase). Cheap
+                    // when WIP is idle and no sector is warm.
+                    if h.wip()
+                        || w25q32_activity
+                            .borrow()
+                            .iter()
+                            .any(|&v| v > W25Q32_HEAT_BUMP - W25Q32_HEAT_DECAY)
+                    {
+                        let new_image = h.image();
+                        let new_erased = compute_w25q32_erased(&new_image);
+                        *w25q32_erased.borrow_mut() = new_erased;
+                        *w25q32_image.borrow_mut() = new_image.clone();
+                        spawn_local(async move {
+                            idb::put(W25Q32_IDB_KEY, &new_image).await;
+                        });
+                    }
+                    w25q32_snapshot.set(Some(read_w25q32_snapshot(
+                        h,
+                        &w25q32_activity.borrow(),
+                        &w25q32_erased.borrow(),
+                    )));
+                }
 
                 let stop = match batch.reason {
                     cor24_emulator::StopReason::Halted => {
@@ -690,6 +884,169 @@ fn app() -> Html {
         })
     };
 
+    // SD card upload: read the picked File as an ArrayBuffer via
+    // FileReader (only browser-async option for binary blobs), then
+    // on success push the bytes into both the live device handle
+    // (if a run is in progress) and the next-attach `sdcard_image`
+    // ref, and write through to IDB so the upload survives reload.
+    let on_upload_sdcard = {
+        let sdcard_handle = sdcard_handle.clone();
+        let sdcard_snapshot = sdcard_snapshot.clone();
+        let sdcard_image = sdcard_image.clone();
+        Callback::from(move |file: File| {
+            let Ok(reader) = FileReader::new() else { return };
+            let reader_clone = reader.clone();
+            let sdcard_handle = sdcard_handle.clone();
+            let sdcard_snapshot = sdcard_snapshot.clone();
+            let sdcard_image = sdcard_image.clone();
+            let onload = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                let Ok(result) = reader_clone.result() else {
+                    return;
+                };
+                let Ok(buffer) = result.dyn_into::<js_sys::ArrayBuffer>() else {
+                    return;
+                };
+                let array = Uint8Array::new(&buffer);
+                let mut bytes = vec![0u8; array.length() as usize];
+                array.copy_to(&mut bytes);
+                // Persist to IDB asynchronously; the in-memory state
+                // updates immediately so the panel reflects the new
+                // image even if the IDB write hasn't landed yet.
+                let bytes_for_idb = bytes.clone();
+                spawn_local(async move {
+                    idb::put(SDCARD_IDB_KEY, &bytes_for_idb).await;
+                });
+                if let Some(h) = sdcard_handle.borrow().as_ref() {
+                    h.replace_image(bytes.clone());
+                    sdcard_snapshot.set(Some(read_sdcard_snapshot(h)));
+                } else {
+                    // No live attach (panel shown pre-Run): update
+                    // the next-attach seed and the displayed size.
+                    sdcard_snapshot.set(Some(SdCardSnapshot {
+                        cs: 2,
+                        size_bytes: bytes.len() as u32,
+                        last_accessed_sector: None,
+                    }));
+                }
+                *sdcard_image.borrow_mut() = bytes;
+            }) as Box<dyn FnMut(web_sys::Event)>);
+            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+            onload.forget();
+            let _ = reader.read_as_array_buffer(&file);
+        })
+    };
+
+    // SD card reset: drop the IDB-persisted image, restore the
+    // bundled default, and update the live device + panel.
+    let on_reset_sdcard = {
+        let sdcard_handle = sdcard_handle.clone();
+        let sdcard_snapshot = sdcard_snapshot.clone();
+        let sdcard_image = sdcard_image.clone();
+        Callback::from(move |()| {
+            let default_bytes = SDCARD_DEFAULT_IMAGE.to_vec();
+            spawn_local(async {
+                idb::delete(SDCARD_IDB_KEY).await;
+            });
+            if let Some(h) = sdcard_handle.borrow().as_ref() {
+                h.replace_image(default_bytes.clone());
+                sdcard_snapshot.set(Some(read_sdcard_snapshot(h)));
+            } else {
+                sdcard_snapshot.set(Some(SdCardSnapshot {
+                    cs: 2,
+                    size_bytes: default_bytes.len() as u32,
+                    last_accessed_sector: None,
+                }));
+            }
+            *sdcard_image.borrow_mut() = default_bytes;
+        })
+    };
+
+    // W25Q32 upload: same shape as the SD card upload. The emulator
+    // normalizes any image length to exactly 4 MiB so we don't have
+    // to validate file size here.
+    let on_upload_w25q32 = {
+        let w25q32_handle = w25q32_handle.clone();
+        let w25q32_snapshot = w25q32_snapshot.clone();
+        let w25q32_image = w25q32_image.clone();
+        let w25q32_activity = w25q32_activity.clone();
+        let w25q32_erased = w25q32_erased.clone();
+        Callback::from(move |file: File| {
+            let Ok(reader) = FileReader::new() else { return };
+            let reader_clone = reader.clone();
+            let w25q32_handle = w25q32_handle.clone();
+            let w25q32_snapshot = w25q32_snapshot.clone();
+            let w25q32_image = w25q32_image.clone();
+            let w25q32_activity = w25q32_activity.clone();
+            let w25q32_erased = w25q32_erased.clone();
+            let onload = Closure::wrap(Box::new(move |_e: web_sys::Event| {
+                let Ok(result) = reader_clone.result() else {
+                    return;
+                };
+                let Ok(buffer) = result.dyn_into::<js_sys::ArrayBuffer>() else {
+                    return;
+                };
+                let array = Uint8Array::new(&buffer);
+                let mut bytes = vec![0u8; array.length() as usize];
+                array.copy_to(&mut bytes);
+                // Normalize to exactly 4 MiB so the panel's flag cache
+                // matches what the emulator will see at attach.
+                if bytes.len() < 4 * 1024 * 1024 {
+                    bytes.resize(4 * 1024 * 1024, 0xFF);
+                } else if bytes.len() > 4 * 1024 * 1024 {
+                    bytes.truncate(4 * 1024 * 1024);
+                }
+                let erased = compute_w25q32_erased(&bytes);
+                let bytes_for_idb = bytes.clone();
+                spawn_local(async move {
+                    idb::put(W25Q32_IDB_KEY, &bytes_for_idb).await;
+                });
+                if let Some(h) = w25q32_handle.borrow().as_ref() {
+                    h.replace_image(bytes.clone());
+                    w25q32_snapshot.set(Some(read_w25q32_snapshot(
+                        h,
+                        &w25q32_activity.borrow(),
+                        &erased,
+                    )));
+                }
+                *w25q32_image.borrow_mut() = bytes;
+                *w25q32_erased.borrow_mut() = erased;
+            }) as Box<dyn FnMut(web_sys::Event)>);
+            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+            onload.forget();
+            let _ = reader.read_as_array_buffer(&file);
+        })
+    };
+
+    // W25Q32 Chip Erase: call the device's erase_chip (sets all
+    // 4 MiB to 0xFF), drop the IDB blob, repaint the heatmap pale
+    // (all sectors erased, activity cleared).
+    let on_reset_w25q32 = {
+        let w25q32_handle = w25q32_handle.clone();
+        let w25q32_snapshot = w25q32_snapshot.clone();
+        let w25q32_image = w25q32_image.clone();
+        let w25q32_activity = w25q32_activity.clone();
+        let w25q32_erased = w25q32_erased.clone();
+        Callback::from(move |()| {
+            spawn_local(async {
+                idb::delete(W25Q32_IDB_KEY).await;
+            });
+            let erased_image = vec![0xFFu8; 4 * 1024 * 1024];
+            let erased_flags = vec![true; W25Q32_SECTOR_COUNT];
+            let cleared_activity = vec![0u8; W25Q32_SECTOR_COUNT];
+            if let Some(h) = w25q32_handle.borrow().as_ref() {
+                h.erase_chip();
+                w25q32_snapshot.set(Some(read_w25q32_snapshot(
+                    h,
+                    &cleared_activity,
+                    &erased_flags,
+                )));
+            }
+            *w25q32_image.borrow_mut() = erased_image;
+            *w25q32_erased.borrow_mut() = erased_flags;
+            *w25q32_activity.borrow_mut() = cleared_activity;
+        })
+    };
+
     let on_toggle_ds1307_battery = {
         let ds1307_battery_enabled = ds1307_battery_enabled.clone();
         Callback::from(move |enabled: bool| {
@@ -755,6 +1112,10 @@ fn app() -> Html {
         let test_device_snapshot = test_device_snapshot.clone();
         let tmp125_snapshot = tmp125_snapshot.clone();
         let echo_snapshot = echo_snapshot.clone();
+        let sdcard_snapshot = sdcard_snapshot.clone();
+        let sdcard_image = sdcard_image.clone();
+        let w25q32_snapshot = w25q32_snapshot.clone();
+        let w25q32_erased = w25q32_erased.clone();
         let ds1307_snapshot = ds1307_snapshot.clone();
         let ds1307_battery_enabled = ds1307_battery_enabled.clone();
         let ssd1306_snapshot = ssd1306_snapshot.clone();
@@ -818,6 +1179,35 @@ fn app() -> Html {
                     ssd1306_snapshot.set(Some(default_or_keep_ssd1306(&ssd1306_snapshot)));
                 } else {
                     ssd1306_snapshot.set(None);
+                }
+                if demo.config.attach_sdcard {
+                    // Preview the size/CS from the current image
+                    // bytes (IDB-restored upload or bundled default).
+                    let size = sdcard_image.borrow().len() as u32;
+                    sdcard_snapshot.set(Some(SdCardSnapshot {
+                        cs: 2,
+                        size_bytes: size,
+                        last_accessed_sector: None,
+                    }));
+                } else {
+                    sdcard_snapshot.set(None);
+                }
+                if demo.config.attach_w25q32 {
+                    // Preview the heatmap from the current erased-
+                    // flag cache; activity starts cold pre-Run.
+                    let activity = vec![0u8; W25Q32_SECTOR_COUNT];
+                    let erased = w25q32_erased.borrow().clone();
+                    w25q32_snapshot.set(Some(W25q32Snapshot {
+                        cs: 3,
+                        jedec_id: [0xEF, 0x40, 0x16],
+                        wip: false,
+                        wel: false,
+                        last_accessed_address: None,
+                        sector_activity: activity,
+                        sector_erased: erased,
+                    }));
+                } else {
+                    w25q32_snapshot.set(None);
                 }
                 assemble_error.set(None);
                 listing.set(Vec::new());
@@ -964,7 +1354,13 @@ fn app() -> Html {
                         <SpiPanel bus={*spi_bus_snapshot}
                                   tmp125={*tmp125_snapshot}
                                   echo={*echo_snapshot}
-                                  on_set_tmp125_temperature={on_set_tmp125_temperature} />
+                                  sdcard={(*sdcard_snapshot).clone()}
+                                  w25q32={(*w25q32_snapshot).clone()}
+                                  on_set_tmp125_temperature={on_set_tmp125_temperature}
+                                  on_upload_sdcard={on_upload_sdcard}
+                                  on_reset_sdcard={on_reset_sdcard}
+                                  on_upload_w25q32={on_upload_w25q32}
+                                  on_reset_w25q32={on_reset_w25q32} />
 
                         <div style="display:flex; justify-content:space-between; align-items:center; \
                                     font-size:0.8rem; color:#bac2de; border-top:1px solid #313244; \
@@ -1175,6 +1571,52 @@ fn read_tmp125_snapshot(handle: &SpiHandle<Tmp125Device>) -> Tmp125Snapshot {
 /// Snapshot the SPI EchoDevice's UI-visible state.
 fn read_echo_snapshot(handle: &SpiHandle<EchoDevice>) -> EchoSnapshot {
     handle.with(|d| EchoSnapshot { buffer: d.peek() })
+}
+
+/// Snapshot the SPI SD card's UI-visible state. The image bytes are
+/// pulled on demand from the panel's upload/reset callbacks rather
+/// than carried in the snapshot -- a 1 MiB+ blob in every tick's
+/// snapshot would defeat Yew's PartialEq short-circuit.
+fn read_sdcard_snapshot(handle: &SpiHandle<SdCardDevice>) -> SdCardSnapshot {
+    SdCardSnapshot {
+        cs: handle.with(|d| d.cs()),
+        size_bytes: handle.size() as u32,
+        last_accessed_sector: handle.last_accessed_sector(),
+    }
+}
+
+/// Snapshot the W25Q32's UI-visible state. The 4 MiB image is not
+/// in the snapshot; instead the per-sector "activity" cooling counter
+/// and the per-sector "is erased (0xFF)" flag are -- both small
+/// (1024 bytes + 1024 bools) and PartialEq-friendly.
+fn read_w25q32_snapshot(
+    handle: &SpiHandle<W25q32Device>,
+    activity: &[u8],
+    erased: &[bool],
+) -> W25q32Snapshot {
+    W25q32Snapshot {
+        cs: handle.with(|d| d.cs()),
+        jedec_id: handle.jedec_id(),
+        wip: handle.wip(),
+        wel: handle.wel(),
+        last_accessed_address: handle.last_accessed_address(),
+        sector_activity: activity.to_vec(),
+        sector_erased: erased.to_vec(),
+    }
+}
+
+/// Recompute the per-sector "all 0xFF" flag cache from a fresh
+/// image. O(4 MiB) -- only called on uploads / reset / write-trap,
+/// not per-tick.
+fn compute_w25q32_erased(image: &[u8]) -> Vec<bool> {
+    let mut flags = Vec::with_capacity(W25Q32_SECTOR_COUNT);
+    for sector in 0..W25Q32_SECTOR_COUNT {
+        let start = sector * W25Q32_SECTOR_SIZE;
+        let end = (start + W25Q32_SECTOR_SIZE).min(image.len());
+        let all_ff = image[start..end].iter().all(|&b| b == 0xFF);
+        flags.push(all_ff);
+    }
+    flags
 }
 
 fn main() {
